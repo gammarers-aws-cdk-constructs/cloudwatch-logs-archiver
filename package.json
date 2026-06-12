@@ -74,7 +74,7 @@
     "constructs": "^10.5.1"
   },
   "dependencies": {
-    "@gammarers/aws-secure-log-bucket": "^2.1.19"
+    "s3-secure-bucket": "^0.3.1"
   },
   "keywords": [
     "archive",

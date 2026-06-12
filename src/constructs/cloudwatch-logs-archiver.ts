@@ -1,12 +1,11 @@
-import { SecureLogBucket } from '@gammarers/aws-secure-log-bucket';
-import { Duration, RemovalPolicy, Stack, TimeZone } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, TimeZone } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as targets from 'aws-cdk-lib/aws-scheduler-targets';
 import { Construct } from 'constructs';
+import { S3SecureBucket, S3SecureBucketType } from 's3-secure-bucket';
 import { LogArchiveFunction } from '../funcs/log-archive-function';
 
 /**
@@ -44,42 +43,9 @@ export class CloudWatchLogsArchiver extends Construct {
   constructor(scope: Construct, id: string, props: CloudWatchLogsArchiverProps) {
     super(scope, id);
 
-    // 👇 Get current region
-    const region = Stack.of(this).region;
-
-    // 👇 Create Backup S3 Bucket
-    const logArchiveBucket = new SecureLogBucket(this, 'LogArchiveBucket', {
-      encryption: s3.BucketEncryption.S3_MANAGED,
+    const logArchiveBucket = new S3SecureBucket(this, 'LogArchiveBucket', {
+      bucketType: S3SecureBucketType.CLOUD_WATCH_LOG_ARCHIVE_BUCKET,
     });
-    logArchiveBucket.addToResourcePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      principals: [
-        new iam.ServicePrincipal(`logs.${region}.amazonaws.com`),
-      ],
-      actions: [
-        's3:GetBucketAcl',
-      ],
-      resources: [
-        logArchiveBucket.bucketArn,
-      ],
-    }));
-    logArchiveBucket.addToResourcePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      principals: [
-        new iam.ServicePrincipal(`logs.${region}.amazonaws.com`),
-      ],
-      actions: [
-        's3:PutObject',
-      ],
-      resources: [
-        `${logArchiveBucket.bucketArn}/*`,
-      ],
-      conditions: {
-        StringEquals: {
-          's3:x-amz-acl': 'bucket-owner-full-control',
-        },
-      },
-    }));
 
     // 👇 Create Lambda Function
     const logArchiveFunction = new LogArchiveFunction(this, 'LogArchiveFunction', {
