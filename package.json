@@ -1,8 +1,8 @@
 {
-  "name": "daily-cloudwatch-logs-archiver",
+  "name": "cloudwatch-logs-archiver",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver.git"
+    "url": "https://github.com/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver.git"
   },
   "scripts": {
     "build": "projen build",

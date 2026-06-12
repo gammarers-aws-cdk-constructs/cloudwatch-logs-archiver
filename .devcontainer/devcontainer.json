@@ -1,5 +1,5 @@
 {
-  "name": "dev-aws-daily-cloudwatch-logs-archive-stack",
+  "name": "dev-aws-cloudwatch-logs-archive-stack",
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
