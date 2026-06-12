@@ -136,28 +136,6 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
             },
           ],
         },
-        "LifecycleConfiguration": {
-          "Rules": [
-            {
-              "Id": "archive-step-lifecycle-rule",
-              "Status": "Enabled",
-              "Transitions": [
-                {
-                  "StorageClass": "STANDARD_IA",
-                  "TransitionInDays": 400,
-                },
-                {
-                  "StorageClass": "GLACIER",
-                  "TransitionInDays": 720,
-                },
-                {
-                  "StorageClass": "DEEP_ARCHIVE",
-                  "TransitionInDays": 980,
-                },
-              ],
-            },
-          ],
-        },
         "OwnershipControls": {
           "Rules": [
             {
@@ -221,6 +199,18 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
             },
             {
               "Action": "s3:GetBucketAcl",
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": [
+                    "arn:aws:logs:us-east-1:123456789012:log-group:*",
+                  ],
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": [
+                    "123456789012",
+                  ],
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "logs.us-east-1.amazonaws.com",
@@ -231,11 +221,20 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
                   "Arn",
                 ],
               },
+              "Sid": "AllowCloudWatchLogsExportGetBucketAcl",
             },
             {
               "Action": "s3:PutObject",
               "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": [
+                    "arn:aws:logs:us-east-1:123456789012:log-group:*",
+                  ],
+                },
                 "StringEquals": {
+                  "aws:SourceAccount": [
+                    "123456789012",
+                  ],
                   "s3:x-amz-acl": "bucket-owner-full-control",
                 },
               },
@@ -257,6 +256,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
                   ],
                 ],
               },
+              "Sid": "AllowCloudWatchLogsExportPutObject",
             },
           ],
           "Version": "2012-10-17",
