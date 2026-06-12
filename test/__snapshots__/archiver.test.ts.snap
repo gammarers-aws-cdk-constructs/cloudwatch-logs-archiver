@@ -275,7 +275,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         ],
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
-          "S3Key": "5844ac89340e9e2ce02c0ad6d558afaff94939f6a53d8d2071745e82b10c67e8.zip",
+          "S3Key": "5c0857d15f370a2eecf0fdca340cc5039c60032e1fba8fb9546489aa4abb32fd.zip",
         },
         "Description": "A function to archive logs s3 bucket from CloudWatch Logs.",
         "DurableConfig": {
@@ -318,7 +318,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         },
         "FunctionVersion": {
           "Fn::GetAtt": [
-            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA287c77e5aaab69e5521e015b165f0fca",
+            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAd0db1b86b41d251e37a79b43c28362d0",
             "Version",
           ],
         },
@@ -326,7 +326,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
       },
       "Type": "AWS::Lambda::Alias",
     },
-    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA287c77e5aaab69e5521e015b165f0fca": {
+    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAd0db1b86b41d251e37a79b43c28362d0": {
       "Metadata": {
         "aws:cdk:do-not-refactor": true,
       },

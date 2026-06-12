@@ -14,6 +14,7 @@ import {
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { Context } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
+import { SafeEnvGetterValidationError } from 'safe-env-getter';
 import { handler } from '../../src/funcs/log-archive.lambda';
 
 /**
@@ -115,7 +116,14 @@ describe('Lambda Function Handler testing', () => {
       const result = await handler(createInvocationInput(payload), {} as Context);
 
       expect(result).toMatchObject({ Status: 'FAILED' });
-      expect((result as { Error?: { ErrorMessage?: string } }).Error?.ErrorMessage).toContain('BUCKET_NAME');
+      const errorMessage = (result as { Error?: { ErrorMessage?: string } }).Error?.ErrorMessage ?? '';
+      expect(errorMessage).toContain('BUCKET_NAME');
+      expect(errorMessage).toContain('Missing required environment variable');
+
+      const validationError = new SafeEnvGetterValidationError([
+        { key: 'BUCKET_NAME', message: 'Missing required environment variable: BUCKET_NAME', kind: 'missing' },
+      ]);
+      expect(errorMessage).toBe(validationError.message);
     });
   });
 

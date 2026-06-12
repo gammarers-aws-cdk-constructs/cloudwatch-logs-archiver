@@ -20,7 +20,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     '@types/aws-lambda@^8.10.162',
     'aws-sdk-client-mock@^3.1.0',
     'aws-sdk-client-mock-jest@^3.1.0',
-    'safe-env-getter@^0.1.1',
+    'safe-env-getter@^0.3.4',
   ],
   releaseToNpm: true,
   npmTrustedPublishing: false,

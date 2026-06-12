@@ -11,7 +11,7 @@ import {
   GetResourcesCommand,
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
-import { SafeEnvGetter } from 'safe-env-getter';
+import { SafeEnvGetter, SafeEnvType } from 'safe-env-getter';
 
 /**
  * EventBridge Scheduler target input for the log archive Lambda.
@@ -121,13 +121,13 @@ const createExportLogGroup = async (
  * @param event - Scheduler input with `Params.TagKey` and `Params.TagValues`.
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
- * @throws Error if `BUCKET_NAME` is not set or `Params` are missing or invalid.
+ * @throws {import('safe-env-getter').SafeEnvGetterValidationError} if `BUCKET_NAME` is not set.
+ * @throws Error if `Params` are missing or invalid.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
-  context.logger.info('Log archiver started', { hasTagKey: 'tagKey' in event });
+  context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
 
-  // safe get Secrets name from environment variable
-  const bucketName = SafeEnvGetter.getEnv('BUCKET_NAME');
+  const bucketName = SafeEnvGetter.getEnv('BUCKET_NAME', SafeEnvType.String);
 
   const cwLogs = new CloudWatchLogsClient({});
   let logGroupNames: string[];
