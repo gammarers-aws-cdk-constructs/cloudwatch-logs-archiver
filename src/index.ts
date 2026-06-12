@@ -1,6 +1,6 @@
 /**
- * Public API for the daily CloudWatch Logs archive package.
- * Re-exports constructs and stacks for deploying the archive solution.
+ * Public API for the CloudWatch Logs Archiver CDK package.
+ * Re-exports constructs and stacks for deploying the daily archive solution.
  */
-export * from './constructs/daily-cloudwatch-logs-archiver';
-export * from './stacks/daily-cloudwatch-logs-archive-stack';
+export * from './constructs/cloudwatch-logs-archiver';
+export * from './stacks/cloudwatch-logs-archive-stack';

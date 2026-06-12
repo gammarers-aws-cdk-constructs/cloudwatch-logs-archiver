@@ -1,21 +1,21 @@
 import { Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { DailyCloudWatchLogsArchiver, type TargetResource } from '../constructs/daily-cloudwatch-logs-archiver';
+import { CloudWatchLogsArchiver, type TargetResource } from '../constructs/cloudwatch-logs-archiver';
 
 /**
- * Props for the DailyCloudWatchLogsArchiveStack.
+ * Props for the {@link CloudWatchLogsArchiveStack}.
  * Extends StackProps with the tag filter for target log groups.
  */
-export interface DailyCloudWatchLogsArchiveStackProps extends StackProps {
+export interface CloudWatchLogsArchiveStackProps extends StackProps {
   /** Tag key and values used to select CloudWatch Log groups for daily archiving. */
   readonly targetResource: TargetResource;
 }
 
 /**
  * CDK Stack that deploys the daily CloudWatch Logs archive solution.
- * Contains a single DailyCloudWatchLogsArchive construct configured with the given tag filter.
+ * Contains a single {@link CloudWatchLogsArchiver} construct configured with the given tag filter.
  */
-export class DailyCloudWatchLogsArchiveStack extends Stack {
+export class CloudWatchLogsArchiveStack extends Stack {
   /**
    * Creates the stack and the daily archive construct.
    *
@@ -23,10 +23,10 @@ export class DailyCloudWatchLogsArchiveStack extends Stack {
    * @param id - Stack ID.
    * @param props - Stack props including targetResource for log group selection.
    */
-  constructor(scope: Construct, id: string, props: DailyCloudWatchLogsArchiveStackProps) {
+  constructor(scope: Construct, id: string, props: CloudWatchLogsArchiveStackProps) {
     super(scope, id, props);
 
-    new DailyCloudWatchLogsArchiver(this, 'DailyCloudWatchLogsArchiver', {
+    new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
       targetResource: props.targetResource,
     });
   }

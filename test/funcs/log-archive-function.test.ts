@@ -18,7 +18,7 @@ import { handler } from '../../src/funcs/log-archive.lambda';
 
 /**
  * Scheduler / durable input shape matching EventBridge Scheduler target payload
- * (see `daily-cloudwatch-logs-archiver` ScheduleTargetInput).
+ * (see `cloudwatch-logs-archiver` ScheduleTargetInput).
  */
 type LogArchiveScheduleEvent = {
   Params: {

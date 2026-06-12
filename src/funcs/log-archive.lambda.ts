@@ -14,11 +14,14 @@ import {
 import { SafeEnvGetter } from 'safe-env-getter';
 
 /**
- * Input from EventBridge Scheduler: specifies target log groups by tag key and values.
+ * EventBridge Scheduler target input for the log archive Lambda.
  */
 interface ScheduleEvent {
+  /** Tag filter parameters passed from the scheduler target input. */
   Params: {
+    /** Tag key used to discover CloudWatch Log groups. */
     TagKey: string;
+    /** Tag values to match; groups with any of these values are exported. */
     TagValues: string[];
   };
 }
@@ -112,14 +115,13 @@ const createExportLogGroup = async (
 
 /**
  * Durable Lambda handler for archiving CloudWatch Logs to S3.
- * Accepts either scheduler input (tagKey + tagValues) to discover log groups by tag,
- * or legacy input (TargetLogGroupName) for a single log group.
+ * Discovers log groups by tag via the Resource Groups Tagging API, then exports
+ * the previous calendar day's logs for each group to the configured S3 bucket.
  *
- * @param event - SchedulerEventInput (tag-based) or SingleLogGroupEventInput (single group).
+ * @param event - Scheduler input with `Params.TagKey` and `Params.TagValues`.
  * @param context - Durable execution context (steps, map, logger).
- * @returns Object with ExportedCount: number of log groups successfully exported.
- * @throws EnvironmentVariableError if BUCKET_NAME is not set.
- * @throws InputVariableError if event is invalid or missing required fields.
+ * @returns Object with `ExportedCount`: number of log groups successfully exported.
+ * @throws Error if `BUCKET_NAME` is not set or `Params` are missing or invalid.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: 'tagKey' in event });
