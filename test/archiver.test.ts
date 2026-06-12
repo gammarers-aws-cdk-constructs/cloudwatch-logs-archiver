@@ -34,47 +34,41 @@ describe('CloudWatchLogsArchiveStack Testing', () => {
       });
     });
 
-    it('should have bucket resource policy', () => {
+    it('should have bucket resource policy for CloudWatch Logs export', () => {
       template.hasResourceProperties('AWS::S3::BucketPolicy', {
         PolicyDocument: {
           Version: '2012-10-17',
           Statement: Match.arrayWith([
-            Match.objectEquals({
+            Match.objectLike({
+              Sid: 'AllowCloudWatchLogsExportGetBucketAcl',
               Effect: 'Allow',
               Action: 's3:GetBucketAcl',
               Principal: {
                 Service: 'logs.us-east-1.amazonaws.com',
               },
-              Resource: {
-                'Fn::GetAtt': [
-                  Match.stringLikeRegexp('LogArchiveBucket.*'),
-                  'Arn',
-                ],
+              Condition: {
+                StringEquals: {
+                  'aws:SourceAccount': ['123456789012'],
+                },
+                ArnLike: {
+                  'aws:SourceArn': ['arn:aws:logs:us-east-1:123456789012:log-group:*'],
+                },
               },
             }),
-            Match.objectEquals({
+            Match.objectLike({
+              Sid: 'AllowCloudWatchLogsExportPutObject',
               Effect: 'Allow',
               Action: 's3:PutObject',
               Principal: {
                 Service: 'logs.us-east-1.amazonaws.com',
               },
-              Resource: {
-                'Fn::Join': [
-                  '',
-                  [
-                    {
-                      'Fn::GetAtt': [
-                        Match.stringLikeRegexp('LogArchiveBucket.*'),
-                        'Arn',
-                      ],
-                    },
-                    '/*',
-                  ],
-                ],
-              },
               Condition: {
                 StringEquals: {
                   's3:x-amz-acl': 'bucket-owner-full-control',
+                  'aws:SourceAccount': ['123456789012'],
+                },
+                ArnLike: {
+                  'aws:SourceArn': ['arn:aws:logs:us-east-1:123456789012:log-group:*'],
                 },
               },
             }),

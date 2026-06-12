@@ -15,7 +15,7 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 - **Tag-based selection** – Uses the Resource Groups Tagging API to find CloudWatch Log groups by tag (e.g. `DailyLogExport` = `Yes`); only tagged groups are archived.
 - **Durable Lambda execution** – Export logic runs in a single Lambda with [AWS Durable Execution](https://docs.aws.amazon.com/lambda/latest/dg/durable-getting-started.html), creating export tasks and polling until completion (up to 2 hours) so many log groups can be processed in one run.
 - **Structured S3 layout** – Exports the previous calendar day (00:00:00–23:59:59.999 UTC) per log group to S3 with prefix `{logGroupName}/{YYYY}/{MM}/{DD}/`.
-- **Secure bucket** – S3 bucket from `@gammarers/aws-secure-log-bucket` with a resource policy allowing CloudWatch Logs to deliver export data.
+- **Secure bucket** – S3 bucket from `s3-secure-bucket` (`CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy allowing CloudWatch Logs export tasks to deliver data.
 - **Versioned invocation** – Lambda alias `live` is used as the scheduler target for stable, versioned deployments.
 
 ## How it works
@@ -29,7 +29,7 @@ You tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only
 
 ## Resources created
 
-- **S3 bucket** – Secure log bucket (from `@gammarers/aws-secure-log-bucket`) with a resource policy allowing CloudWatch Logs to deliver export data.
+- **S3 bucket** – Secure archive bucket (from `s3-secure-bucket`, `CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy for CloudWatch Logs export tasks.
 - **Lambda function** – Durable execution, ARM64, 15-minute timeout per invocation, 2-hour durable execution limit. Writes to the bucket and uses the tagging API.
 - **Lambda execution role** – Basic + Durable Execution managed policies plus S3, `tag:GetResources`, and CloudWatch Logs export permissions.
 - **Lambda log group** – 3-month retention for the archiver's own logs.

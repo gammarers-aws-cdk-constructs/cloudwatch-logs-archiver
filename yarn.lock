@@ -988,18 +988,6 @@
     "@eslint/core" "^0.17.0"
     levn "^0.4.1"
 
-"@gammarers/aws-secure-bucket@^2.5.0":
-  version "2.5.11"
-  resolved "https://registry.yarnpkg.com/@gammarers/aws-secure-bucket/-/aws-secure-bucket-2.5.11.tgz#d05001fc60cc5a4e357109dc0689823be5770f1f"
-  integrity sha512-oBYXj/vM0HDGarxYZ4Hhoi6BroRZwmchg7Gm1Y2SAC3XD5RG+HbV9uxN5v3hCzdKgV/q/sIpxBAlnzqfYqqtuQ==
-
-"@gammarers/aws-secure-log-bucket@^2.1.19":
-  version "2.3.16"
-  resolved "https://registry.yarnpkg.com/@gammarers/aws-secure-log-bucket/-/aws-secure-log-bucket-2.3.16.tgz#c5cda10cb0863edd2c072391a4f02b5c5b4b0195"
-  integrity sha512-TX/BDAvswG9dLkKzEVtM1kxZN42jkrVgg1tuZF6ucS0a9l2/BRiryxePO6UGCW6pMDrs7Jdk3w73CspN49vFSA==
-  dependencies:
-    "@gammarers/aws-secure-bucket" "^2.5.0"
-
 "@humanfs/core@^0.19.2":
   version "0.19.2"
   resolved "https://registry.yarnpkg.com/@humanfs/core/-/core-0.19.2.tgz#a8272ca03b2acf492670222b2320b6c421bfde60"
@@ -5680,6 +5668,11 @@ run-parallel@^1.1.9:
   integrity sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==
   dependencies:
     queue-microtask "^1.2.2"
+
+s3-secure-bucket@^0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/s3-secure-bucket/-/s3-secure-bucket-0.3.1.tgz#fe6413d2d29cead2dbbba601578c2c5dabb9a1fe"
+  integrity sha512-Q5meuobfRvrnYIhYMVFbWNIMAgoGH/EWF33i8l77XMAwkrAMbbgJtNdcqWOcSYyHOwGSVUWX96n8I+CbZWbdXw==
 
 safe-array-concat@^1.1.3:
   version "1.1.4"

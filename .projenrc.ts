@@ -19,7 +19,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'archive',
   ],
   deps: [
-    '@gammarers/aws-secure-log-bucket@^2.1.19',
+    's3-secure-bucket@^0.3.1',
   ],
   devDeps: [
     '@aws/durable-execution-sdk-js@^1.1.7',

@@ -141,8 +141,8 @@
       "type": "peer"
     },
     {
-      "name": "@gammarers/aws-secure-log-bucket",
-      "version": "^2.1.19",
+      "name": "s3-secure-bucket",
+      "version": "^0.3.1",
       "type": "runtime"
     }
   ],
