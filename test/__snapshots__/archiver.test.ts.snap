@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match snapshot: archiver 1`] = `
+exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapshot: archiver 1`] = `
 {
   "Parameters": {
     "BootstrapVersion": {
@@ -10,7 +10,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
     },
   },
   "Resources": {
-    "DailyCloudWatchLogsArchiverLambdaExecutionRoleB287F490": {
+    "CloudWatchLogsArchiverLambdaExecutionRole0F2A2FEF": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -54,7 +54,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::IAM::Role",
     },
-    "DailyCloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy82788427": {
+    "CloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy17C21247": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -67,7 +67,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                    "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                     "Arn",
                   ],
                 },
@@ -77,7 +77,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
                     [
                       {
                         "Fn::GetAtt": [
-                          "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                          "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                           "Arn",
                         ],
                       },
@@ -106,16 +106,16 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "DailyCloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy82788427",
+        "PolicyName": "CloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy17C21247",
         "Roles": [
           {
-            "Ref": "DailyCloudWatchLogsArchiverLambdaExecutionRoleB287F490",
+            "Ref": "CloudWatchLogsArchiverLambdaExecutionRole0F2A2FEF",
           },
         ],
       },
       "Type": "AWS::IAM::Policy",
     },
-    "DailyCloudWatchLogsArchiverLambdaFunctionLogGroupF3ACBF01": {
+    "CloudWatchLogsArchiverLambdaFunctionLogGroupD90C9B77": {
       "DeletionPolicy": "Delete",
       "Properties": {
         "RetentionInDays": 90,
@@ -123,7 +123,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       "Type": "AWS::Logs::LogGroup",
       "UpdateReplacePolicy": "Delete",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveBucket88461686": {
+    "CloudWatchLogsArchiverLogArchiveBucketB1535338": {
       "DeletionPolicy": "Retain",
       "Properties": {
         "AccessControl": "Private",
@@ -178,10 +178,10 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       "Type": "AWS::S3::Bucket",
       "UpdateReplacePolicy": "Retain",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveBucketPolicy098686E8": {
+    "CloudWatchLogsArchiverLogArchiveBucketPolicy1A29402C": {
       "Properties": {
         "Bucket": {
-          "Ref": "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+          "Ref": "CloudWatchLogsArchiverLogArchiveBucketB1535338",
         },
         "PolicyDocument": {
           "Statement": [
@@ -199,7 +199,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                    "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                     "Arn",
                   ],
                 },
@@ -209,7 +209,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
                     [
                       {
                         "Fn::GetAtt": [
-                          "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                          "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                           "Arn",
                         ],
                       },
@@ -227,7 +227,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
               },
               "Resource": {
                 "Fn::GetAtt": [
-                  "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                  "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                   "Arn",
                 ],
               },
@@ -249,7 +249,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
                   [
                     {
                       "Fn::GetAtt": [
-                        "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+                        "CloudWatchLogsArchiverLogArchiveBucketB1535338",
                         "Arn",
                       ],
                     },
@@ -264,10 +264,10 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::S3::BucketPolicy",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveFunction1589C8E4": {
+    "CloudWatchLogsArchiverLogArchiveFunction33F02049": {
       "DependsOn": [
-        "DailyCloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy82788427",
-        "DailyCloudWatchLogsArchiverLambdaExecutionRoleB287F490",
+        "CloudWatchLogsArchiverLambdaExecutionRoleDefaultPolicy17C21247",
+        "CloudWatchLogsArchiverLambdaExecutionRole0F2A2FEF",
       ],
       "Properties": {
         "Architectures": [
@@ -275,7 +275,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
         ],
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
-          "S3Key": "d50c4119b308a8c1a6110cf4a7ec4ba2551addc482ed5a8a39f920ae88df5a02.zip",
+          "S3Key": "5c0857d15f370a2eecf0fdca340cc5039c60032e1fba8fb9546489aa4abb32fd.zip",
         },
         "Description": "A function to archive logs s3 bucket from CloudWatch Logs.",
         "DurableConfig": {
@@ -286,7 +286,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
           "Variables": {
             "AWS_NODEJS_CONNECTION_REUSE_ENABLED": "1",
             "BUCKET_NAME": {
-              "Ref": "DailyCloudWatchLogsArchiverLogArchiveBucket88461686",
+              "Ref": "CloudWatchLogsArchiverLogArchiveBucketB1535338",
             },
           },
         },
@@ -295,14 +295,14 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
           "ApplicationLogLevel": "INFO",
           "LogFormat": "JSON",
           "LogGroup": {
-            "Ref": "DailyCloudWatchLogsArchiverLambdaFunctionLogGroupF3ACBF01",
+            "Ref": "CloudWatchLogsArchiverLambdaFunctionLogGroupD90C9B77",
           },
           "SystemLogLevel": "INFO",
         },
         "MemorySize": 512,
         "Role": {
           "Fn::GetAtt": [
-            "DailyCloudWatchLogsArchiverLambdaExecutionRoleB287F490",
+            "CloudWatchLogsArchiverLambdaExecutionRole0F2A2FEF",
             "Arn",
           ],
         },
@@ -311,14 +311,14 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::Lambda::Function",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveFunctionAlias1184211A": {
+    "CloudWatchLogsArchiverLogArchiveFunctionAliasEF3B24FE": {
       "Properties": {
         "FunctionName": {
-          "Ref": "DailyCloudWatchLogsArchiverLogArchiveFunction1589C8E4",
+          "Ref": "CloudWatchLogsArchiverLogArchiveFunction33F02049",
         },
         "FunctionVersion": {
           "Fn::GetAtt": [
-            "DailyCloudWatchLogsArchiverLogArchiveFunctionCurrentVersion4583448608a0086a4f89d7cce541898971aa573e",
+            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAd0db1b86b41d251e37a79b43c28362d0",
             "Version",
           ],
         },
@@ -326,28 +326,28 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::Lambda::Alias",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveFunctionCurrentVersion4583448608a0086a4f89d7cce541898971aa573e": {
+    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAd0db1b86b41d251e37a79b43c28362d0": {
       "Metadata": {
         "aws:cdk:do-not-refactor": true,
       },
       "Properties": {
         "FunctionName": {
-          "Ref": "DailyCloudWatchLogsArchiverLogArchiveFunction1589C8E4",
+          "Ref": "CloudWatchLogsArchiverLogArchiveFunction33F02049",
         },
       },
       "Type": "AWS::Lambda::Version",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveFunctionEventInvokeConfig52CE8D45": {
+    "CloudWatchLogsArchiverLogArchiveFunctionEventInvokeConfigAA8342E0": {
       "Properties": {
         "FunctionName": {
-          "Ref": "DailyCloudWatchLogsArchiverLogArchiveFunction1589C8E4",
+          "Ref": "CloudWatchLogsArchiverLogArchiveFunction33F02049",
         },
         "MaximumRetryAttempts": 2,
         "Qualifier": "$LATEST",
       },
       "Type": "AWS::Lambda::EventInvokeConfig",
     },
-    "DailyCloudWatchLogsArchiverLogArchiveScheduleB17ADD03": {
+    "CloudWatchLogsArchiverLogArchiveScheduleB3B3ABB3": {
       "Properties": {
         "Description": "daily CloudWatch Logs archive schedule",
         "FlexibleTimeWindow": {
@@ -358,7 +358,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
         "State": "ENABLED",
         "Target": {
           "Arn": {
-            "Ref": "DailyCloudWatchLogsArchiverLogArchiveFunctionAlias1184211A",
+            "Ref": "CloudWatchLogsArchiverLogArchiveFunctionAliasEF3B24FE",
           },
           "Input": "{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"]}}",
           "RetryPolicy": {
@@ -367,7 +367,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
           },
           "RoleArn": {
             "Fn::GetAtt": [
-              "SchedulerRoleForTarget6c8c3a74539F82",
+              "SchedulerRoleForTarget14484bDEA00662",
               "Arn",
             ],
           },
@@ -375,7 +375,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::Scheduler::Schedule",
     },
-    "SchedulerRoleForTarget6c8c3a74539F82": {
+    "SchedulerRoleForTarget14484bDEA00662": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -409,7 +409,7 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
       },
       "Type": "AWS::IAM::Role",
     },
-    "SchedulerRoleForTarget6c8c3aDefaultPolicyE34F1522": {
+    "SchedulerRoleForTarget14484bDefaultPolicy028886A2": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -417,16 +417,16 @@ exports[`DailyCloudWatchLogsArchiveStack Testing Snapshot Testing should match s
               "Action": "lambda:InvokeFunction",
               "Effect": "Allow",
               "Resource": {
-                "Ref": "DailyCloudWatchLogsArchiverLogArchiveFunctionAlias1184211A",
+                "Ref": "CloudWatchLogsArchiverLogArchiveFunctionAliasEF3B24FE",
               },
             },
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "SchedulerRoleForTarget6c8c3aDefaultPolicyE34F1522",
+        "PolicyName": "SchedulerRoleForTarget14484bDefaultPolicy028886A2",
         "Roles": [
           {
-            "Ref": "SchedulerRoleForTarget6c8c3a74539F82",
+            "Ref": "SchedulerRoleForTarget14484bDEA00662",
           },
         ],
       },

@@ -21,27 +21,27 @@ export interface TargetResource {
 }
 
 /**
- * Props for creating a DailyCloudWatchLogsArchive construct.
+ * Props for creating a {@link CloudWatchLogsArchiver} construct.
  */
-export interface DailyCloudWatchLogsArchiverProps {
+export interface CloudWatchLogsArchiverProps {
   /** Tag filter to identify which log groups to archive daily. */
   readonly targetResource: TargetResource;
 }
 
 /**
- * CDK construct that sets up daily archiving of CloudWatch Logs to S3.
+ * CDK construct that sets up archiving of CloudWatch Logs to S3.
  * Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
  * that invokes the function daily to export tagged log groups to the bucket.
  */
-export class DailyCloudWatchLogsArchiver extends Construct {
+export class CloudWatchLogsArchiver extends Construct {
   /**
-   * Creates a daily CloudWatch Logs archive solution.
+   * Creates a CloudWatch Logs archive solution.
    *
    * @param scope - Parent construct (e.g. Stack).
    * @param id - Construct ID.
-   * @param props - Configuration for target log groups (tag key/values) and optional overrides.
+   * @param props - Configuration including the tag filter for target log groups.
    */
-  constructor(scope: Construct, id: string, props: DailyCloudWatchLogsArchiverProps) {
+  constructor(scope: Construct, id: string, props: CloudWatchLogsArchiverProps) {
     super(scope, id);
 
     // 👇 Get current region

@@ -1,11 +1,11 @@
-# Daily CloudWatch Logs Archiver (AWS CDK v2)
+# CloudWatch Logs Archiver (AWS CDK v2)
 
-[![GitHub](https://img.shields.io/github/license/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver?style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver/blob/main/LICENSE)
-[![npm version](https://img.shields.io/npm/v/daily-cloudwatch-logs-archiver?style=flat-square)](https://www.npmjs.com/package/daily-cloudwatch-logs-archiver)
-[![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver/release.yml?branch=main&label=release&style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver/actions/workflows/release.yml)
-[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver?sort=semver&style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/daily-cloudwatch-logs-archiver/releases)
+[![GitHub](https://img.shields.io/github/license/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver?style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/cloudwatch-logs-archiver?style=flat-square)](https://www.npmjs.com/package/cloudwatch-logs-archiver)
+[![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver/release.yml?branch=main&label=release&style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver/actions/workflows/release.yml)
+[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver?sort=semver&style=flat-square)](https://github.com/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver/releases)
 
-[![View on Construct Hub](https://constructs.dev/badge?package=daily-cloudwatch-logs-archiver)](https://constructs.dev/packages/daily-cloudwatch-logs-archiver)
+[![View on Construct Hub](https://constructs.dev/badge?package=cloudwatch-logs-archiver)](https://constructs.dev/packages/cloudwatch-logs-archiver)
 
 An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups are selected by resource tags; the previous calendar day's logs are exported to a secure S3 bucket on a fixed schedule (13:01 UTC).
 
@@ -45,19 +45,19 @@ You tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only
 **npm**
 
 ```bash
-npm install daily-cloudwatch-logs-archiver
+npm install cloudwatch-logs-archiver
 ```
 
 **yarn**
 
 ```bash
-yarn add daily-cloudwatch-logs-archiver
+yarn add cloudwatch-logs-archiver
 ```
 
 **pnpm**
 
 ```bash
-pnpm add daily-cloudwatch-logs-archiver
+pnpm add cloudwatch-logs-archiver
 ```
 
 ## Usage
@@ -65,9 +65,9 @@ pnpm add daily-cloudwatch-logs-archiver
 Use the construct inside your stack and pass the tag key and values used to select log groups. Only log groups that have this tag (with one of the given values) will be archived.
 
 ```typescript
-import { DailyCloudWatchLogsArchiver } from 'daily-cloudwatch-logs-archiver';
+import { CloudWatchLogsArchiver } from 'cloudwatch-logs-archiver';
 
-new DailyCloudWatchLogsArchiver(this, 'DailyCloudWatchLogsArchiver', {
+new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
   targetResource: {
     tagKey: 'DailyLogExport',
     tagValues: ['Yes'],
@@ -78,9 +78,9 @@ new DailyCloudWatchLogsArchiver(this, 'DailyCloudWatchLogsArchiver', {
 Alternatively, use the dedicated stack that contains the construct:
 
 ```typescript
-import { DailyCloudWatchLogsArchiveStack } from 'daily-cloudwatch-logs-archiver';
+import { CloudWatchLogsArchiveStack } from 'cloudwatch-logs-archiver';
 
-new DailyCloudWatchLogsArchiveStack(app, 'DailyCloudWatchLogsArchiveStack', {
+new CloudWatchLogsArchiveStack(app, 'CloudWatchLogsArchiveStack', {
   targetResource: {
     tagKey: 'DailyLogExport',
     tagValues: ['Yes'],
@@ -92,19 +92,19 @@ Ensure the CloudWatch Log groups you want to archive are tagged accordingly (e.g
 
 ## Options
 
-### `DailyCloudWatchLogsArchiver`
+### `CloudWatchLogsArchiver`
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `targetResource` | `TargetResource` | Tag filter to identify which log groups to archive daily. |
 
-### `DailyCloudWatchLogsArchiveStack`
+### `CloudWatchLogsArchiveStack`
 
 Inherits standard [`StackProps`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.StackProps.html) plus:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `targetResource` | `TargetResource` | Tag filter passed through to `DailyCloudWatchLogsArchiver`. |
+| `targetResource` | `TargetResource` | Tag filter passed through to `CloudWatchLogsArchiver`. |
 
 ### `TargetResource`
 

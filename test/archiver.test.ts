@@ -1,11 +1,11 @@
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { DailyCloudWatchLogsArchiveStack } from '../src';
+import { CloudWatchLogsArchiveStack } from '../src';
 
-describe('DailyCloudWatchLogsArchiveStack Testing', () => {
+describe('CloudWatchLogsArchiveStack Testing', () => {
   const app = new App();
 
-  const stack = new DailyCloudWatchLogsArchiveStack(app, 'DailyCloudWatchLogsArchiveStack', {
+  const stack = new CloudWatchLogsArchiveStack(app, 'CloudWatchLogsArchiveStack', {
     env: {
       account: '123456789012',
       region: 'us-east-1',
