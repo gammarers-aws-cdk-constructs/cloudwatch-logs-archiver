@@ -7,7 +7,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   typescriptVersion: '6.0.x',
   jsiiVersion: '6.0.x',
   name: 'cloudwatch-logs-archiver',
-  packageManager: javascript.NodePackageManager.YARN_CLASSIC,
+  packageManager: javascript.NodePackageManager.NPM,
   projenrcTs: true,
   repositoryUrl: 'https://github.com/gammarers-aws-cdk-constructs/cloudwatch-logs-archiver.git',
   description: 'An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups are selected by resource tags; the previous calendar day\'s logs are exported to a secure S3 bucket on a fixed schedule (13:01 UTC).',

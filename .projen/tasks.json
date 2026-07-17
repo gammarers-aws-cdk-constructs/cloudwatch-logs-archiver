@@ -181,7 +181,7 @@
       "description": "Install project dependencies and update lockfile (non-frozen)",
       "steps": [
         {
-          "exec": "yarn install --check-files"
+          "exec": "npm install"
         }
       ]
     },
@@ -190,7 +190,7 @@
       "description": "Install project dependencies using frozen lockfile",
       "steps": [
         {
-          "exec": "yarn install --check-files --frozen-lockfile"
+          "exec": "npm ci"
         }
       ]
     },
@@ -336,12 +336,12 @@
           ]
         },
         {
-          "exec": "yarn install --check-files"
+          "exec": "npm install"
         },
         {
           "execArgs": [
-            "yarn",
-            "upgrade",
+            "npm",
+            "update",
             "@aws-sdk/client-cloudwatch-logs",
             "@aws-sdk/client-resource-groups-tagging-api",
             "@aws/durable-execution-sdk-js",
