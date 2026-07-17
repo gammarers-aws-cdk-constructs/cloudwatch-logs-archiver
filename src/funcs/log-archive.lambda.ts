@@ -11,7 +11,7 @@ import {
   GetResourcesCommand,
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
-import { SafeEnvGetter, SafeEnvType } from 'safe-env-getter';
+import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
 import { isLimitExceededException } from './core/is-limit-exceeded-exception';
 import { getPreviousUtcDayWindow } from './core/previous-utc-day-window';
 
@@ -195,13 +195,13 @@ const createExportLogGroup = async (
  * @param event - Scheduler input with `Params.TagKey` and `Params.TagValues`.
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
- * @throws {import('safe-env-getter').SafeEnvGetterValidationError} if `BUCKET_NAME` is not set.
+ * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
  * @throws Error if `Params` are missing or invalid.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
 
-  const bucketName = SafeEnvGetter.getEnv('BUCKET_NAME', SafeEnvType.String);
+  const bucketName = StrictEnvResolver.resolve('BUCKET_NAME', StrictEnvType.String);
 
   const cwLogs = new CloudWatchLogsClient({});
   let logGroupNames: string[];

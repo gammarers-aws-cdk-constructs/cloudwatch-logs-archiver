@@ -366,7 +366,7 @@
             "jsii-rosetta",
             "jsii",
             "projen",
-            "safe-env-getter",
+            "strict-env-resolver",
             "ts-jest",
             "ts-node",
             "typescript",

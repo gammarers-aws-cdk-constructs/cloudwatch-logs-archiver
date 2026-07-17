@@ -5377,11 +5377,6 @@ safe-buffer@~5.2.0:
   resolved "https://registry.yarnpkg.com/safe-buffer/-/safe-buffer-5.2.1.tgz#1eaf9fa9bdb1fdd4ec75f58f9cdb4e6b7827eec6"
   integrity sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==
 
-safe-env-getter@^0.3.4:
-  version "0.3.6"
-  resolved "https://registry.yarnpkg.com/safe-env-getter/-/safe-env-getter-0.3.6.tgz#3fdaba775e17f92306ae5cc4b579518187ea082c"
-  integrity sha512-SmtKDjCStCrN38v+HEQF3UU347Q1VxD5b0R9dgCyMp3zk8XLst2oH87EoxLYJ2+/4suAG97NtzF08Qfy8qOfEw==
-
 safe-push-apply@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/safe-push-apply/-/safe-push-apply-1.0.0.tgz#01850e981c1602d398c85081f360e4e6d03d27f5"
@@ -5652,6 +5647,11 @@ streamroller@^3.1.5:
     date-format "^4.0.14"
     debug "^4.3.4"
     fs-extra "^8.1.0"
+
+strict-env-resolver@^0.5.2:
+  version "0.5.2"
+  resolved "https://registry.yarnpkg.com/strict-env-resolver/-/strict-env-resolver-0.5.2.tgz#06ff803165b6ea83e6f217841935bbbd2cfd96be"
+  integrity sha512-qqLXR95aiuSw6+a6LO5Wxed7tP9WLtCKPFarH9+In9AOlYNj1gC3SvMeJzxKC2ffjPV+yZH7byXY7ATBWsovnw==
 
 string-length@^4.0.2:
   version "4.0.2"

@@ -113,8 +113,8 @@
       "type": "build"
     },
     {
-      "name": "safe-env-getter",
-      "version": "^0.3.4",
+      "name": "strict-env-resolver",
+      "version": "^0.5.2",
       "type": "build"
     },
     {
