@@ -11,7 +11,9 @@ import {
   GetResourcesCommand,
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
-import { SafeEnvGetter, SafeEnvType } from 'safe-env-getter';
+import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
+import { isLimitExceededException } from './core/is-limit-exceeded-exception';
+import { getPreviousUtcDayWindow } from './core/previous-utc-day-window';
 
 /**
  * EventBridge Scheduler target input for the log archive Lambda.
@@ -44,17 +46,69 @@ const RUNNING_WAIT_SECONDS = 10;
 const PENDING_WAIT_SECONDS = 3;
 
 /**
+ * Seconds to wait before retrying CreateExportTask after LimitExceededException
+ * (another PENDING/RUNNING export occupies the account/region slot).
+ */
+const LIMIT_EXCEEDED_WAIT_SECONDS = 30;
+
+/**
+ * Outcome of a durable CreateExportTask step.
+ * `limit_exceeded` is returned as a value (not thrown) so the step can checkpoint,
+ * then the caller waits and retries with a new step name.
+ */
+type CreateExportTaskStepResult =
+  | {
+    /** CreateExportTask succeeded and returned a task ID. */
+    readonly kind: 'created';
+    /** Export task ID from CreateExportTask. */
+    readonly taskId: string;
+  }
+  | {
+    /** Concurrent export quota exceeded; wait then retry CreateExportTask. */
+    readonly kind: 'limit_exceeded';
+    /** Exception message (or fallback) for structured logging. */
+    readonly reason: string;
+  };
+
+/**
+ * Whether CreateExportTask should wait for an export slot and retry.
+ * Also narrows `result` to the `limit_exceeded` variant.
+ *
+ * @param result - Outcome of a CreateExportTask durable step.
+ * @returns `true` when `result.kind` is `limit_exceeded`.
+ */
+const shouldRetryCreateExportAfterLimitExceeded = (
+  result: CreateExportTaskStepResult,
+): result is { readonly kind: 'limit_exceeded'; readonly reason: string } =>
+  result.kind === 'limit_exceeded';
+
+/**
+ * Builds a loggable failure reason from an unknown thrown value.
+ *
+ * @param error - Thrown value (typically LimitExceededException).
+ * @returns Non-empty `Error.message`, or `"LimitExceededException"` when missing.
+ */
+const getErrorReason = (error: unknown): string => {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return 'LimitExceededException';
+};
+
+/**
  * Creates a CloudWatch Logs export task for the given log group and polls until it completes.
- * Exports the previous calendar day's logs to the specified S3 bucket. Retries once on FAILED.
+ * Exports the previous UTC calendar day's logs to the specified S3 bucket.
+ * Retries CreateExportTask after Durable wait on LimitExceededException; retries once on FAILED.
  *
  * @param ctx - Durable execution context for steps and waits.
- * @param stepName - Base name for step IDs (e.g. "export-0").
+ * @param stepName - Base name for step IDs (e.g. `"export-0"`).
  * @param cwLogs - CloudWatch Logs client.
  * @param bucketName - S3 bucket destination for the export.
  * @param logGroupName - Name of the log group to export.
- * @param retried - Whether this invocation is already a retry (used to avoid infinite retry loop).
- * @returns Resolves when the export task completes (COMPLETED, CANCELLED, or PENDING_CANCEL).
- * @throws Error if CreateExportTask does not return a taskId or if the task fails after retry.
+ * @param retried - Whether this call is already a FAILED-status retry (avoids infinite retry).
+ * @returns Resolves when the export task reaches COMPLETED, CANCELLED, or PENDING_CANCEL.
+ * @throws Error if CreateExportTask omits `taskId`, a non-LimitExceeded SDK error occurs,
+ *   or the task is FAILED after one retry.
  */
 const createExportLogGroup = async (
   ctx: DurableContext,
@@ -65,28 +119,48 @@ const createExportLogGroup = async (
   retried = false,
 ): Promise<void> => {
   const safeLogGroupName = logGroupName.replace(/\//g, '-').replace(/^-/, '').replace(/\./g, '--');
-  const now = new Date();
-  const targetFromTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime() - (1000 * 60 * 60 * 24);
-  const targetToTime = targetFromTime + (1000 * 60 * 60 * 24) + 999;
-  const targetDate = new Date(targetFromTime);
-  const y = targetDate.getFullYear();
-  const m = ('00' + (targetDate.getMonth() + 1)).slice(-2);
-  const d = ('00' + (targetDate.getDate())).slice(-2);
+  const { from, to, year, month, day } = getPreviousUtcDayWindow(new Date());
 
-  const createResult = await ctx.step(`${stepName}-create`, async () => {
-    return cwLogs.send(new CreateExportTaskCommand({
-      destination: bucketName,
-      logGroupName,
-      from: targetFromTime,
-      to: targetToTime,
-      destinationPrefix: `${safeLogGroupName}/${y}/${m}/${d}/`,
-    }));
-  });
+  let createAttempt = 0;
+  let createResult: CreateExportTaskStepResult;
+
+  do {
+    createResult = await ctx.step(`${stepName}-create-${createAttempt}`, async (): Promise<CreateExportTaskStepResult> => {
+      try {
+        const result = await cwLogs.send(new CreateExportTaskCommand({
+          destination: bucketName,
+          logGroupName,
+          from,
+          to,
+          destinationPrefix: `${safeLogGroupName}/${year}/${month}/${day}/`,
+        }));
+        if (!result.taskId) {
+          throw new Error(`CreateExportTask did not return taskId for log group: ${logGroupName}`);
+        }
+        return { kind: 'created', taskId: result.taskId };
+      } catch (error: unknown) {
+        if (!isLimitExceededException(error)) {
+          throw error;
+        }
+        return { kind: 'limit_exceeded', reason: getErrorReason(error) };
+      }
+    });
+
+    if (shouldRetryCreateExportAfterLimitExceeded(createResult)) {
+      ctx.logger.warn('CreateExportTask LimitExceededException; waiting for export slot', {
+        logGroupName,
+        attempt: createAttempt,
+        reason: createResult.reason,
+        waitSeconds: LIMIT_EXCEEDED_WAIT_SECONDS,
+      });
+      await ctx.wait(`${stepName}-limit-exceeded-wait-${createAttempt}`, {
+        seconds: LIMIT_EXCEEDED_WAIT_SECONDS,
+      });
+      createAttempt += 1;
+    }
+  } while (shouldRetryCreateExportAfterLimitExceeded(createResult));
 
   const taskId = createResult.taskId;
-  if (!taskId) {
-    throw new Error(`CreateExportTask did not return taskId for log group: ${logGroupName}`);
-  }
 
   for (;;) {
     const { status } = await ctx.step(`${stepName}-describe`, async () => {
@@ -121,13 +195,13 @@ const createExportLogGroup = async (
  * @param event - Scheduler input with `Params.TagKey` and `Params.TagValues`.
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
- * @throws {import('safe-env-getter').SafeEnvGetterValidationError} if `BUCKET_NAME` is not set.
+ * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
  * @throws Error if `Params` are missing or invalid.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
 
-  const bucketName = SafeEnvGetter.getEnv('BUCKET_NAME', SafeEnvType.String);
+  const bucketName = StrictEnvResolver.resolve('BUCKET_NAME', StrictEnvType.String);
 
   const cwLogs = new CloudWatchLogsClient({});
   let logGroupNames: string[];

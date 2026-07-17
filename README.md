@@ -7,38 +7,36 @@
 
 [![View on Construct Hub](https://constructs.dev/badge?package=cloudwatch-logs-archiver)](https://constructs.dev/packages/cloudwatch-logs-archiver)
 
-An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups are selected by resource tags; the previous calendar day's logs are exported to a secure S3 bucket on a fixed schedule (13:01 UTC).
+An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups are selected by resource tags; the previous UTC calendar day's logs are exported to a secure S3 bucket on a fixed schedule (13:01 UTC).
 
 ## Features
 
 - **Scheduled daily export** – EventBridge Scheduler runs once per day at 13:01 UTC.
 - **Tag-based selection** – Uses the Resource Groups Tagging API to find CloudWatch Log groups by tag (e.g. `DailyLogExport` = `Yes`); only tagged groups are archived.
 - **Durable Lambda execution** – Export logic runs in a single Lambda with [AWS Durable Execution](https://docs.aws.amazon.com/lambda/latest/dg/durable-getting-started.html), creating export tasks and polling until completion (up to 2 hours) so many log groups can be processed in one run.
-- **Structured S3 layout** – Exports the previous calendar day (00:00:00–23:59:59.999 UTC) per log group to S3 with prefix `{logGroupName}/{YYYY}/{MM}/{DD}/`.
-- **Secure bucket** – S3 bucket from `s3-secure-bucket` (`CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy allowing CloudWatch Logs export tasks to deliver data.
+- **UTC previous-day window** – Exports the previous UTC calendar day (`00:00:00.000`–`23:59:59.999`) per log group to S3 with prefix `{logGroupName}/{YYYY}/{MM}/{DD}/`.
+- **Export slot wait/retry** – On `LimitExceededException` (one concurrent export per account/region), waits with Durable execution and retries `CreateExportTask`, logging the failure reason.
+- **Serial exports** – Processes log groups with `maxConcurrency: 1` to respect the account/region export quota.
+- **Secure bucket** – S3 bucket from [`s3-secure-bucket`](https://www.npmjs.com/package/s3-secure-bucket) (`CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy allowing CloudWatch Logs export tasks to deliver data.
 - **Versioned invocation** – Lambda alias `live` is used as the scheduler target for stable, versioned deployments.
 
 ## How it works
 
-- **Schedule**: EventBridge Scheduler runs once per day at **13:01 UTC**.
-- **Target selection**: The scheduler invokes the Lambda with `Params.TagKey` and `Params.TagValues`. The Lambda uses the Resource Groups Tagging API to find all CloudWatch Log groups that match that tag filter, then exports each group.
-- **Durable Lambda**: The export logic runs inside a single Lambda using [AWS Durable Execution](https://docs.aws.amazon.com/lambda/latest/dg/durable-getting-started.html). The function creates export tasks, polls until they complete (with retries), and can run up to 2 hours so many log groups can be processed in one run.
-- **Export**: For each log group, a `CreateExportTask` is issued for the **previous calendar day** (00:00:00–23:59:59.999 UTC). Objects are written to S3 with the prefix `{logGroupName}/{YYYY}/{MM}/{DD}/`.
+1. **Schedule** – EventBridge Scheduler invokes the Lambda alias daily at **13:01 UTC** with `Params.TagKey` and `Params.TagValues`.
+2. **Discovery** – The Lambda resolves matching CloudWatch Log groups via the Resource Groups Tagging API.
+3. **Export** – For each log group (one at a time), it calls `CreateExportTask` for the previous UTC calendar day and polls `DescribeExportTasks` until completion.
+4. **Retries** – `LimitExceededException` triggers a Durable wait and another create attempt; a `FAILED` task status is retried once.
 
-You tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only those groups are archived.
+Tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only those groups are archived.
 
 ## Resources created
 
-- **S3 bucket** – Secure archive bucket (from `s3-secure-bucket`, `CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy for CloudWatch Logs export tasks.
+- **S3 bucket** – Secure archive bucket (`s3-secure-bucket`, `CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy for CloudWatch Logs export tasks.
 - **Lambda function** – Durable execution, ARM64, 15-minute timeout per invocation, 2-hour durable execution limit. Writes to the bucket and uses the tagging API.
 - **Lambda execution role** – Basic + Durable Execution managed policies plus S3, `tag:GetResources`, and CloudWatch Logs export permissions.
 - **Lambda log group** – 3-month retention for the archiver's own logs.
 - **Lambda alias** – `live`, used as the scheduler target for versioned deployments.
 - **EventBridge Scheduler** – Cron schedule and target (Lambda invoke with JSON input `{"Params":{"TagKey":"...","TagValues":["..."]}}`).
-
-## Architecture
-
-![architecture](/architecture.drawio.svg)
 
 ## Installation
 

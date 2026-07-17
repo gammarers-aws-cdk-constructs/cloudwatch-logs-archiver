@@ -58,23 +58,23 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "^30.4.2",
     "jest-junit": "^17",
-    "jsii": "5.9.x",
+    "jsii": "6.0.x",
     "jsii-diff": "^1.138.0",
     "jsii-docgen": "^10.5.0",
     "jsii-pacmak": "^1.138.0",
-    "jsii-rosetta": "5.9.x",
+    "jsii-rosetta": "6.0.x",
     "projen": "^0.101.11",
-    "safe-env-getter": "^0.3.4",
+    "strict-env-resolver": "^0.5.2",
     "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
-    "typescript": "5.9.x"
+    "typescript": "6.0.x"
   },
   "peerDependencies": {
     "aws-cdk-lib": "^2.232.0",
     "constructs": "^10.5.1"
   },
   "dependencies": {
-    "s3-secure-bucket": "^0.3.1"
+    "s3-secure-bucket": "^0.4.0"
   },
   "keywords": [
     "archive",
@@ -88,8 +88,7 @@
   },
   "devEngines": {
     "packageManager": {
-      "name": "yarn",
-      "version": "1.22.22",
+      "name": "npm",
       "onFail": "ignore"
     }
   },
