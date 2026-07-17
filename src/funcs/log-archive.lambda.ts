@@ -12,6 +12,7 @@ import {
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { SafeEnvGetter, SafeEnvType } from 'safe-env-getter';
+import { getPreviousUtcDayWindow } from './core/previous-utc-day-window';
 
 /**
  * EventBridge Scheduler target input for the log archive Lambda.
@@ -65,21 +66,15 @@ const createExportLogGroup = async (
   retried = false,
 ): Promise<void> => {
   const safeLogGroupName = logGroupName.replace(/\//g, '-').replace(/^-/, '').replace(/\./g, '--');
-  const now = new Date();
-  const targetFromTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime() - (1000 * 60 * 60 * 24);
-  const targetToTime = targetFromTime + (1000 * 60 * 60 * 24) + 999;
-  const targetDate = new Date(targetFromTime);
-  const y = targetDate.getFullYear();
-  const m = ('00' + (targetDate.getMonth() + 1)).slice(-2);
-  const d = ('00' + (targetDate.getDate())).slice(-2);
+  const { from, to, year, month, day } = getPreviousUtcDayWindow(new Date());
 
   const createResult = await ctx.step(`${stepName}-create`, async () => {
     return cwLogs.send(new CreateExportTaskCommand({
       destination: bucketName,
       logGroupName,
-      from: targetFromTime,
-      to: targetToTime,
-      destinationPrefix: `${safeLogGroupName}/${y}/${m}/${d}/`,
+      from,
+      to,
+      destinationPrefix: `${safeLogGroupName}/${year}/${month}/${day}/`,
     }));
   });
 
