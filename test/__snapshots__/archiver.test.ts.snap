@@ -275,7 +275,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         ],
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
-          "S3Key": "16b4c1cb3a7eea6b154bc9f64a9457e418b3e630d1da79049e278de04ce995e3.zip",
+          "S3Key": "1b289b1cc9ce6712a5c5aeef256b42435a819eb55930c30d62df3cfcb3edeb17.zip",
         },
         "Description": "A function to archive logs s3 bucket from CloudWatch Logs.",
         "DurableConfig": {
@@ -318,7 +318,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         },
         "FunctionVersion": {
           "Fn::GetAtt": [
-            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA21de110491506d6dfa31737bad686c5a",
+            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA77f81ded58653cc1c38dc5be851f7f8a",
             "Version",
           ],
         },
@@ -326,7 +326,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
       },
       "Type": "AWS::Lambda::Alias",
     },
-    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA21de110491506d6dfa31737bad686c5a": {
+    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA77f81ded58653cc1c38dc5be851f7f8a": {
       "Metadata": {
         "aws:cdk:do-not-refactor": true,
       },
@@ -353,6 +353,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         "FlexibleTimeWindow": {
           "Mode": "OFF",
         },
+        "GroupName": "CloudWatchLogsArchiveStack-Cver-LogArchiveScheduleGroup-7636C26A",
         "ScheduleExpression": "cron(1 13 * * ? *)",
         "ScheduleExpressionTimezone": "Etc/UTC",
         "State": "ENABLED",
@@ -375,6 +376,14 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
       },
       "Type": "AWS::Scheduler::Schedule",
     },
+    "CloudWatchLogsArchiverLogArchiveScheduleGroup557CE8A0": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Name": "CloudWatchLogsArchiveStack-Cver-LogArchiveScheduleGroup-7636C26A",
+      },
+      "Type": "AWS::Scheduler::ScheduleGroup",
+      "UpdateReplacePolicy": "Delete",
+    },
     "SchedulerRoleForTarget14484bDEA00662": {
       "Properties": {
         "AssumeRolePolicyDocument": {
@@ -385,15 +394,9 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
                 "StringEquals": {
                   "aws:SourceAccount": "123456789012",
                   "aws:SourceArn": {
-                    "Fn::Join": [
-                      "",
-                      [
-                        "arn:",
-                        {
-                          "Ref": "AWS::Partition",
-                        },
-                        ":scheduler:us-east-1:123456789012:schedule-group/default",
-                      ],
+                    "Fn::GetAtt": [
+                      "CloudWatchLogsArchiverLogArchiveScheduleGroup557CE8A0",
+                      "Arn",
                     ],
                   },
                 },

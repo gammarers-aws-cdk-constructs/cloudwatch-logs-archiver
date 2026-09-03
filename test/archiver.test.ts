@@ -1,6 +1,7 @@
-import { App } from 'aws-cdk-lib';
+import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { CloudWatchLogsArchiveStack } from '../src';
+import { Topic } from 'aws-cdk-lib/aws-sns';
+import { CloudWatchLogsArchiveStack, CloudWatchLogsArchiver } from '../src';
 
 describe('CloudWatchLogsArchiveStack Testing', () => {
   const app = new App();
@@ -192,6 +193,7 @@ describe('CloudWatchLogsArchiveStack Testing', () => {
         FlexibleTimeWindow: { Mode: 'OFF' },
         ScheduleExpressionTimezone: 'Etc/UTC',
         ScheduleExpression: 'cron(1 13 * * ? *)',
+        GroupName: Match.stringLikeRegexp('LogArchiveScheduleGroup'),
         Target: Match.objectLike({
           Arn: { Ref: Match.stringLikeRegexp('LogArchiveFunctionAlias.*') },
           Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"]}}',
@@ -201,6 +203,20 @@ describe('CloudWatchLogsArchiveStack Testing', () => {
       });
       template.resourceCountIs('AWS::Scheduler::Schedule', 1);
     });
+
+    it('should have a dedicated schedule group for isolated metrics', () => {
+      template.resourceCountIs('AWS::Scheduler::ScheduleGroup', 1);
+    });
+  });
+
+  describe('Alarm Testing', () => {
+
+    it('should not create SNS topics, alarms, or metric filters by default', () => {
+      template.resourceCountIs('AWS::SNS::Topic', 0);
+      template.resourceCountIs('AWS::SNS::TopicPolicy', 0);
+      template.resourceCountIs('AWS::CloudWatch::Alarm', 0);
+      template.resourceCountIs('AWS::Logs::MetricFilter', 0);
+    });
   });
 
   describe('Snapshot Testing', () => {
@@ -209,3 +225,105 @@ describe('CloudWatchLogsArchiveStack Testing', () => {
     });
   });
 });
+
+describe('CloudWatchLogsArchiveStack with failure alarms enabled', () => {
+  const app = new App();
+  const stack = new CloudWatchLogsArchiveStack(app, 'CloudWatchLogsArchiveStackAlarmsEnabled', {
+    env: {
+      account: '123456789012',
+      region: 'us-east-1',
+    },
+    targetResource: {
+      tagKey: 'DailyLogExport',
+      tagValues: ['Yes'],
+    },
+    failureAlarm: {
+      enabled: true,
+    },
+  });
+  const template = Template.fromStack(stack);
+
+  it('should not create an SNS topic', () => {
+    template.resourceCountIs('AWS::SNS::Topic', 0);
+    template.resourceCountIs('AWS::SNS::TopicPolicy', 0);
+  });
+
+  it('should create four operational alarms without SNS actions', () => {
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmDescription: 'CloudWatch Logs Archiver Lambda reported Errors >= 1.',
+      Namespace: 'AWS/Lambda',
+      MetricName: 'Errors',
+      AlarmActions: Match.absent(),
+    });
+  });
+
+  it('should extract ExportedCount from Lambda JSON logs', () => {
+    template.hasResourceProperties('AWS::Logs::MetricFilter', {
+      FilterPattern: '{ ($.message.exportedCount = "*") && ($.message.functionName = "*") }',
+      MetricTransformations: Match.arrayWith([
+        Match.objectLike({
+          MetricNamespace: 'CloudWatchLogsArchiver',
+          MetricName: 'ExportedCount',
+          MetricValue: '$.message.exportedCount',
+          Unit: 'Count',
+        }),
+      ]),
+    });
+  });
+});
+
+describe('CloudWatchLogsArchiver with failure alarm notification topic', () => {
+  const app = new App();
+  const stack = new Stack(app, 'CloudWatchLogsArchiveStackWithTopic', {
+    env: {
+      account: '123456789012',
+      region: 'us-east-1',
+    },
+  });
+  const existingTopic = new Topic(stack, 'ExistingAlarmTopic');
+  new CloudWatchLogsArchiver(stack, 'CloudWatchLogsArchiver', {
+    targetResource: {
+      tagKey: 'DailyLogExport',
+      tagValues: ['Yes'],
+    },
+    failureAlarm: {
+      notificationTopic: existingTopic,
+      minExportedCount: 3,
+    },
+  });
+  const template = Template.fromStack(stack);
+
+  it('should use the provided SNS topic and not create another', () => {
+    template.resourceCountIs('AWS::SNS::Topic', 1);
+  });
+
+  it('should allow CloudWatch Alarms to publish to the SNS topic', () => {
+    template.hasResourceProperties('AWS::SNS::TopicPolicy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Sid: 'AllowCloudWatchAlarmsPublish',
+            Effect: 'Allow',
+            Action: 'sns:Publish',
+            Principal: { Service: 'cloudwatch.amazonaws.com' },
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('should notify the provided topic and use minExportedCount as the threshold', () => {
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmDescription: Match.stringLikeRegexp('ExportedCount is below 3'),
+      ComparisonOperator: 'LessThanThreshold',
+      Threshold: 3,
+      AlarmActions: Match.arrayWith([
+        { Ref: Match.stringLikeRegexp('ExistingAlarmTopic.*') },
+      ]),
+    });
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+  });
+});
+
+
