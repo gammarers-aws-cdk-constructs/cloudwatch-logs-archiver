@@ -8,6 +8,8 @@ CDK construct that sets up archiving of CloudWatch Logs to S3.
 
 Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
 that invokes the function daily to export tagged log groups to the bucket.
+Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
+failure or insufficient export count.
 
 #### Initializers <a name="Initializers" id="cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer"></a>
 
@@ -1126,6 +1128,7 @@ const cloudWatchLogsArchiverProps: CloudWatchLogsArchiverProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
 
 ---
 
@@ -1138,6 +1141,22 @@ public readonly targetResource: TargetResource;
 - *Type:* <a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a>
 
 Tag filter to identify which log groups to archive daily.
+
+---
+
+##### `failureAlarm`<sup>Optional</sup> <a name="failureAlarm" id="cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm"></a>
+
+```typescript
+public readonly failureAlarm: FailureAlarmOptions;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
+- *Default:* failure alarms are not created
+
+Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+
+Omit to skip alarm creation. Alarms are created when `enabled` is true or
+{@link FailureAlarmOptions.notificationTopic} is set.
 
 ---
 
@@ -1172,6 +1191,7 @@ const cloudWatchLogsArchiveStackProps: CloudWatchLogsArchiveStackProps = { ... }
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.tags">tags</a></code> | <code>{[ key: string ]: string}</code> | Tags that will be applied to the Stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.terminationProtection">terminationProtection</a></code> | <code>boolean</code> | Whether to enable termination protection for this stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag key and values used to select CloudWatch Log groups for daily archiving. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms passed through to {@link CloudWatchLogsArchiver}. |
 
 ---
 
@@ -1428,6 +1448,92 @@ public readonly targetResource: TargetResource;
 - *Type:* <a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a>
 
 Tag key and values used to select CloudWatch Log groups for daily archiving.
+
+---
+
+##### `failureAlarm`<sup>Optional</sup> <a name="failureAlarm" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm"></a>
+
+```typescript
+public readonly failureAlarm: FailureAlarmOptions;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
+- *Default:* failure alarms are not created
+
+Failure alarms passed through to {@link CloudWatchLogsArchiver}.
+
+---
+
+### FailureAlarmOptions <a name="FailureAlarmOptions" id="cloudwatch-logs-archiver.FailureAlarmOptions"></a>
+
+Failure-alarm and notification settings for {@link CloudWatchLogsArchiver}.
+
+Creates CloudWatch Alarms for Scheduler/Lambda failures and insufficient ExportedCount.
+The construct never creates an SNS topic; pass {@link FailureAlarmOptions.notificationTopic}
+to receive ALARM-state notifications.
+
+#### Initializer <a name="Initializer" id="cloudwatch-logs-archiver.FailureAlarmOptions.Initializer"></a>
+
+```typescript
+import { FailureAlarmOptions } from 'cloudwatch-logs-archiver'
+
+const failureAlarmOptions: FailureAlarmOptions = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions.property.enabled">enabled</a></code> | <code>boolean</code> | When `true`, failure CloudWatch Alarms are created even without a notification topic. |
+| <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions.property.minExportedCount">minExportedCount</a></code> | <code>number</code> | Minimum successful export count expected per daily run. |
+| <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions.property.notificationTopic">notificationTopic</a></code> | <code>aws-cdk-lib.aws_sns.ITopic</code> | Existing SNS topic that receives failure ALARM-state notifications. |
+
+---
+
+##### `enabled`<sup>Optional</sup> <a name="enabled" id="cloudwatch-logs-archiver.FailureAlarmOptions.property.enabled"></a>
+
+```typescript
+public readonly enabled: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+When `true`, failure CloudWatch Alarms are created even without a notification topic.
+
+Specifying {@link FailureAlarmOptions.notificationTopic} also enables failure alarms.
+
+---
+
+##### `minExportedCount`<sup>Optional</sup> <a name="minExportedCount" id="cloudwatch-logs-archiver.FailureAlarmOptions.property.minExportedCount"></a>
+
+```typescript
+public readonly minExportedCount: number;
+```
+
+- *Type:* number
+- *Default:* 1
+
+Minimum successful export count expected per daily run.
+
+The ExportedCount alarm fires when the metric is below this value, or when no
+datapoint is emitted (the run did not complete).
+Set to `0` to alarm only when the metric is missing.
+
+---
+
+##### `notificationTopic`<sup>Optional</sup> <a name="notificationTopic" id="cloudwatch-logs-archiver.FailureAlarmOptions.property.notificationTopic"></a>
+
+```typescript
+public readonly notificationTopic: ITopic;
+```
+
+- *Type:* aws-cdk-lib.aws_sns.ITopic
+- *Default:* no SNS notification
+
+Existing SNS topic that receives failure ALARM-state notifications.
+
+Specifying a topic also enables failure-alarm creation.
 
 ---
 

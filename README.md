@@ -19,6 +19,7 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 - **Serial exports** – Processes log groups with `maxConcurrency: 1` to respect the account/region export quota.
 - **Secure bucket** – S3 bucket from [`s3-secure-bucket`](https://www.npmjs.com/package/s3-secure-bucket) (`CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy allowing CloudWatch Logs export tasks to deliver data.
 - **Versioned invocation** – Lambda alias `live` is used as the scheduler target for stable, versioned deployments.
+- **Failure detection and notification** – Optional failure CloudWatch Alarms on Lambda errors, EventBridge Scheduler target errors / dropped invocations, and insufficient `ExportedCount`. Enable with `failureAlarm.enabled`, and pass an existing SNS topic as `failureAlarm.notificationTopic` to receive notifications (the construct never creates a topic).
 
 ## How it works
 
@@ -26,6 +27,7 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 2. **Discovery** – The Lambda resolves matching CloudWatch Log groups via the Resource Groups Tagging API.
 3. **Export** – For each log group (one at a time), it calls `CreateExportTask` for the previous UTC calendar day and polls `DescribeExportTasks` until completion.
 4. **Retries** – `LimitExceededException` triggers a Durable wait and another create attempt; a `FAILED` task status is retried once.
+5. **Notify on failure** – If any export fails, the Lambda throws. When failure alarms are enabled (`failureAlarm.enabled` or `failureAlarm.notificationTopic`), CloudWatch Alarms fire on Lambda errors, Scheduler delivery failures, and insufficient `ExportedCount`. Notifications are sent only when you pass an existing SNS topic.
 
 Tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only those groups are archived.
 
@@ -36,7 +38,9 @@ Tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only tho
 - **Lambda execution role** – Basic + Durable Execution managed policies plus S3, `tag:GetResources`, and CloudWatch Logs export permissions.
 - **Lambda log group** – 3-month retention for the archiver's own logs.
 - **Lambda alias** – `live`, used as the scheduler target for versioned deployments.
-- **EventBridge Scheduler** – Cron schedule and target (Lambda invoke with JSON input `{"Params":{"TagKey":"...","TagValues":["..."]}}`).
+- **EventBridge Scheduler** – Dedicated schedule group, cron schedule, and target (Lambda invoke with JSON input `{"Params":{"TagKey":"...","TagValues":["..."]}}`).
+- **CloudWatch Alarms** (optional) – Created when `failureAlarm.enabled` is true or `failureAlarm.notificationTopic` is set. Covers Lambda `Errors`, Scheduler `TargetErrorCount` / `InvocationDroppedCount`, and `ExportedCount` (from a log metric filter; missing daily datapoints are treated as breaching).
+- **SNS notification** (optional) – When you pass `failureAlarm.notificationTopic`, ALARM state publishes to that existing topic. The construct does not create an SNS topic.
 
 ## Installation
 
@@ -64,14 +68,22 @@ Use the construct inside your stack and pass the tag key and values used to sele
 
 ```typescript
 import { CloudWatchLogsArchiver } from 'cloudwatch-logs-archiver';
+import * as sns from 'aws-cdk-lib/aws-sns';
+
+const failureAlarmTopic = new sns.Topic(this, 'ArchiverFailureAlarmTopic');
 
 new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
   targetResource: {
     tagKey: 'DailyLogExport',
     tagValues: ['Yes'],
   },
+  failureAlarm: {
+    notificationTopic: failureAlarmTopic,
+  },
 });
 ```
+
+To create failure CloudWatch Alarms without SNS notification, set `failureAlarm.enabled` to `true` and omit `notificationTopic`.
 
 Alternatively, use the dedicated stack that contains the construct:
 
@@ -95,6 +107,7 @@ Ensure the CloudWatch Log groups you want to archive are tagged accordingly (e.g
 | Option | Type | Description |
 |--------|------|-------------|
 | `targetResource` | `TargetResource` | Tag filter to identify which log groups to archive daily. |
+| `failureAlarm` | `FailureAlarmOptions` | Optional failure alarms. Created when `enabled` is true or `notificationTopic` is set. |
 
 ### `CloudWatchLogsArchiveStack`
 
@@ -103,6 +116,15 @@ Inherits standard [`StackProps`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws
 | Option | Type | Description |
 |--------|------|-------------|
 | `targetResource` | `TargetResource` | Tag filter passed through to `CloudWatchLogsArchiver`. |
+| `failureAlarm` | `FailureAlarmOptions` | Passed through to `CloudWatchLogsArchiver`. |
+
+### `FailureAlarmOptions`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `enabled` | `boolean` | When `true`, create failure CloudWatch Alarms even without a topic (default `false`). Implied when `notificationTopic` is set. |
+| `notificationTopic` | `sns.ITopic` | Existing SNS topic for failure ALARM-state notifications. Specifying a topic also enables failure alarms. The construct never creates a topic. |
+| `minExportedCount` | `number` | Minimum `ExportedCount` expected per daily run (default `1`). The alarm fires below this value, or when no datapoint is emitted. Set to `0` to alarm only when the metric is missing. |
 
 ### `TargetResource`
 

@@ -12,6 +12,8 @@ import {
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
+import { getExportBatchFailureMessage, hasExportBatchFailure } from './core/export-batch-failure';
+import { emitExportedCountMetricLog } from './core/exported-count-metric';
 import { isLimitExceededException } from './core/is-limit-exceeded-exception';
 import { getPreviousUtcDayWindow } from './core/previous-utc-day-window';
 
@@ -197,6 +199,7 @@ const createExportLogGroup = async (
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
  * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
  * @throws Error if `Params` are missing or invalid.
+ * @throws Error if one or more log group exports fail (`failureCount` > 0).
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
@@ -246,6 +249,17 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
     { maxConcurrency: 1 },
   );
 
-  context.logger.info('Log archiver completed', { exportedCount: mapResult.successCount });
-  return { ExportedCount: mapResult.successCount };
+  const exportedCount = mapResult.successCount;
+  emitExportedCountMetricLog(exportedCount);
+
+  if (hasExportBatchFailure(mapResult.failureCount)) {
+    context.logger.error('Log archiver completed with export failures', {
+      exportedCount,
+      failureCount: mapResult.failureCount,
+    });
+    throw new Error(getExportBatchFailureMessage(mapResult.failureCount, mapResult.totalCount));
+  }
+
+  context.logger.info('Log archiver completed', { exportedCount });
+  return { ExportedCount: exportedCount };
 });
