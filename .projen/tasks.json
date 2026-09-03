@@ -431,6 +431,7 @@
             "@aws-sdk/client-cloudwatch-logs",
             "@aws-sdk/client-resource-groups-tagging-api",
             "@aws/durable-execution-sdk-js",
+            "@gammarers/projen-projects",
             "@stylistic/eslint-plugin",
             "@types/aws-lambda",
             "@types/jest",
