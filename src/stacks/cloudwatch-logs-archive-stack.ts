@@ -1,6 +1,10 @@
 import { Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { CloudWatchLogsArchiver, type TargetResource } from '../constructs/cloudwatch-logs-archiver';
+import {
+  CloudWatchLogsArchiver,
+  type FailureAlarmOptions,
+  type TargetResource,
+} from '../constructs/cloudwatch-logs-archiver';
 
 /**
  * Props for the {@link CloudWatchLogsArchiveStack}.
@@ -9,6 +13,11 @@ import { CloudWatchLogsArchiver, type TargetResource } from '../constructs/cloud
 export interface CloudWatchLogsArchiveStackProps extends StackProps {
   /** Tag key and values used to select CloudWatch Log groups for daily archiving. */
   readonly targetResource: TargetResource;
+  /**
+   * Failure alarms passed through to {@link CloudWatchLogsArchiver}.
+   * @default - failure alarms are not created
+   */
+  readonly failureAlarm?: FailureAlarmOptions;
 }
 
 /**
@@ -28,6 +37,7 @@ export class CloudWatchLogsArchiveStack extends Stack {
 
     new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
       targetResource: props.targetResource,
+      failureAlarm: props.failureAlarm,
     });
   }
 }
