@@ -14,10 +14,19 @@ import {
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
 import { buildDestinationPrefix } from './core/destination-prefix';
 import { getExportBatchFailureMessage, hasExportBatchFailure } from './core/export-batch-failure';
+import { ExportFailureRetry, shouldRetryFailedExport } from './core/export-failure-retry';
+import {
+  EXPORT_TASK_STATUS_PENDING,
+  exportTaskWait,
+  ExportTaskWait,
+  isExportTaskFinished,
+  shouldWaitForExportTask,
+} from './core/export-task-status';
 import { listUtcExportWindows, type UtcDayWindow } from './core/export-window';
 import { emitExportedCountMetricLog } from './core/exported-count-metric';
 import { isLimitExceededException } from './core/is-limit-exceeded-exception';
 import { resolveExportSettings } from './core/resolve-export-settings';
+import { hasNextResourceTagPage } from './core/resource-tag-page';
 
 /**
  * EventBridge Scheduler target input for the log archive Lambda.
@@ -60,11 +69,20 @@ const getLogGroupNameFromArn = (arn: string): string => {
   return parts[6] ?? arn;
 };
 
-/** Seconds to wait between polls when export task status is RUNNING. */
+/** Seconds to wait between status checks when the export task is RUNNING. */
 const RUNNING_WAIT_SECONDS = 10;
 
-/** Seconds to wait when status is PENDING or before retrying. */
+/** Seconds to wait when status is PENDING or before retrying a FAILED export. */
 const PENDING_WAIT_SECONDS = 3;
+
+/**
+ * Durable wait step suffix and duration for each {@link ExportTaskWait}.
+ * Suffixes stay `running-wait` and `pending-wait` so checkpoint names do not change.
+ */
+const EXPORT_TASK_WAITS = {
+  [ExportTaskWait.Running]: { stepSuffix: 'running-wait', seconds: RUNNING_WAIT_SECONDS },
+  [ExportTaskWait.Pending]: { stepSuffix: 'pending-wait', seconds: PENDING_WAIT_SECONDS },
+} as const;
 
 /**
  * Seconds to wait before retrying CreateExportTask after LimitExceededException
@@ -126,7 +144,7 @@ const getErrorReason = (error: unknown): string => {
  * @param bucketName - S3 bucket destination for the export.
  * @param logGroupName - Name of the log group to export.
  * @param target - Time range and destination prefix for this day.
- * @param retried - Whether this call is already a FAILED-status retry (avoids infinite retry).
+ * @param failureRetry - `first` on the original task, `retried` after one FAILED retry.
  * @returns Resolves when the export task reaches COMPLETED, CANCELLED, or PENDING_CANCEL.
  * @throws Error if CreateExportTask omits `taskId`, a non-LimitExceeded SDK error occurs,
  *   or the task is FAILED after one retry.
@@ -138,7 +156,7 @@ const createExportLogGroup = async (
   bucketName: string,
   logGroupName: string,
   target: ExportTaskTarget,
-  retried = false,
+  failureRetry: ExportFailureRetry,
 ): Promise<void> => {
   let createAttempt = 0;
   let createResult: CreateExportTaskStepResult;
@@ -181,29 +199,37 @@ const createExportLogGroup = async (
 
   const taskId = createResult.taskId;
 
-  for (;;) {
+  const describeExportTaskStatus = async (): Promise<string> => {
     const { status } = await ctx.step(`${stepName}-describe`, async () => {
       const describe = await cwLogs.send(new DescribeExportTasksCommand({ taskId }));
-      return { status: describe.exportTasks?.[0]?.status?.code ?? 'PENDING' };
+      return { status: describe.exportTasks?.[0]?.status?.code ?? EXPORT_TASK_STATUS_PENDING };
     });
+    return status;
+  };
 
-    if (status === 'COMPLETED' || status === 'CANCELLED' || status === 'PENDING_CANCEL') {
-      return;
-    }
-    if (status === 'FAILED') {
-      if (!retried) {
-        await ctx.wait(`${stepName}-retry-wait`, { seconds: PENDING_WAIT_SECONDS });
-        return createExportLogGroup(ctx, `${stepName}-retry`, cwLogs, bucketName, logGroupName, target, true);
-      }
-      throw new Error(`Export task ${taskId} failed for log group: ${logGroupName}`);
-    }
-    if (status === 'RUNNING') {
-      await ctx.wait(`${stepName}-running-wait`, { seconds: RUNNING_WAIT_SECONDS });
-      continue;
-    }
-    // PENDING or unknown
-    await ctx.wait(`${stepName}-pending-wait`, { seconds: PENDING_WAIT_SECONDS });
+  let status = await describeExportTaskStatus();
+  while (shouldWaitForExportTask(status)) {
+    const wait = EXPORT_TASK_WAITS[exportTaskWait(status)];
+    await ctx.wait(`${stepName}-${wait.stepSuffix}`, { seconds: wait.seconds });
+    status = await describeExportTaskStatus();
   }
+
+  if (isExportTaskFinished(status)) {
+    return;
+  }
+  if (shouldRetryFailedExport(failureRetry)) {
+    await ctx.wait(`${stepName}-retry-wait`, { seconds: PENDING_WAIT_SECONDS });
+    return createExportLogGroup(
+      ctx,
+      `${stepName}-retry`,
+      cwLogs,
+      bucketName,
+      logGroupName,
+      target,
+      ExportFailureRetry.Retried,
+    );
+  }
+  throw new Error(`Export task ${taskId} failed for log group: ${logGroupName}`);
 };
 
 /**
@@ -252,6 +278,7 @@ const exportLogGroupDays = async (
         to: window.to,
         destinationPrefix,
       },
+      ExportFailureRetry.First,
     );
   }
 };
@@ -300,7 +327,7 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
         if (m.ResourceARN) arns.push(m.ResourceARN);
       }
       paginationToken = result.PaginationToken ?? undefined;
-    } while (paginationToken);
+    } while (hasNextResourceTagPage(paginationToken));
     return arns.map(getLogGroupNameFromArn);
   });
   context.logger.info('Resolved log groups', { count: logGroupNames.length, tagKey: params.TagKey });

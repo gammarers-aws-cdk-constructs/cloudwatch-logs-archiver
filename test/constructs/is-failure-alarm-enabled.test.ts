@@ -1,4 +1,4 @@
-import { isFailureAlarmEnabled } from '../../src/constructs/is-failure-alarm-enabled';
+import { isFailureAlarmEnabled } from '../../src/cloudwatch-logs-archiver';
 
 describe('isFailureAlarmEnabled', () => {
   it.each([

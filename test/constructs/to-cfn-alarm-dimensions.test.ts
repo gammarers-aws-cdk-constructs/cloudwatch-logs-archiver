@@ -1,4 +1,4 @@
-import { toCfnAlarmDimensions } from '../../src/constructs/to-cfn-alarm-dimensions';
+import { toCfnAlarmDimensions } from '../../src/cloudwatch-logs-archiver';
 
 describe('toCfnAlarmDimensions', () => {
   it.each([

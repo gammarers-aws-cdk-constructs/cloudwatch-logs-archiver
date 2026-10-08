@@ -1,5 +1,5 @@
 /**
- * Shared export-window and destination-prefix limits for the construct and the Lambda.
+ * Values shared by the construct and the Lambda.
  * Validation that throws lives next to each caller; this module only holds the agreed values.
  */
 
@@ -56,3 +56,27 @@ export const DESTINATION_PREFIX_CHARACTERS = '-./_#A-Za-z0-9';
 
 /** Maximum length of a CreateExportTask `destinationPrefix`. */
 export const MAX_DESTINATION_PREFIX_LENGTH = 512;
+
+/**
+ * CloudWatch metric namespace for archiver operational metrics.
+ * The construct's metric filter and the Lambda log must use this same namespace.
+ */
+export const EXPORTED_COUNT_METRIC_NAMESPACE = 'CloudWatchLogsArchiver';
+
+/**
+ * CloudWatch metric name for the number of log groups exported in a run.
+ * The construct's metric filter and the Lambda log must use this same name.
+ */
+export const EXPORTED_COUNT_METRIC_NAME = 'ExportedCount';
+
+/**
+ * JSON field on the Lambda structured `message` object that holds the export count.
+ * Metric Filter path is `$.message.exportedCount`.
+ */
+export const EXPORTED_COUNT_LOG_FIELD = 'exportedCount';
+
+/**
+ * JSON field on the Lambda structured `message` object that holds the function name dimension.
+ * Metric Filter path is `$.message.functionName`.
+ */
+export const EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD = 'functionName';

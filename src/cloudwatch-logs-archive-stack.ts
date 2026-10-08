@@ -3,7 +3,7 @@ import { Construct } from 'constructs';
 import {
   CloudWatchLogsArchiver,
   type CloudWatchLogsArchiverProps,
-} from '../constructs/cloudwatch-logs-archiver';
+} from './cloudwatch-logs-archiver';
 
 /**
  * Props for the {@link CloudWatchLogsArchiveStack}.
@@ -13,7 +13,7 @@ export interface CloudWatchLogsArchiveStackProps extends CloudWatchLogsArchiverP
 
 /**
  * CDK Stack that deploys the daily CloudWatch Logs archive solution.
- * Contains a single {@link CloudWatchLogsArchiver} construct configured with the given tag filter.
+ * Contains a single {@link CloudWatchLogsArchiver} construct.
  */
 export class CloudWatchLogsArchiveStack extends Stack {
   /**
@@ -21,7 +21,7 @@ export class CloudWatchLogsArchiveStack extends Stack {
    *
    * @param scope - Parent construct (e.g. App).
    * @param id - Stack ID.
-   * @param props - Stack props including targetResource for log group selection.
+   * @param props - Stack props, including the archive construct options.
    */
   constructor(scope: Construct, id: string, props: CloudWatchLogsArchiveStackProps) {
     super(scope, id, props);

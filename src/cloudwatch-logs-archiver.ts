@@ -8,15 +8,7 @@ import * as targets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 import { S3SecureBucket, S3SecureBucketType } from 's3-secure-bucket';
-import { isFailureAlarmEnabled } from './is-failure-alarm-enabled';
-import { toCfnAlarmDimensions } from './to-cfn-alarm-dimensions';
-import {
-  EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
-  EXPORTED_COUNT_LOG_FIELD,
-  EXPORTED_COUNT_METRIC_NAME,
-  EXPORTED_COUNT_METRIC_NAMESPACE,
-} from '../funcs/core/exported-count-metric';
-import { LogArchiveFunction } from '../funcs/log-archive-function';
+import { LogArchiveFunction } from './funcs/log-archive-function';
 import {
   DESTINATION_PREFIX_CHARACTERS,
   DESTINATION_PREFIX_DAY_TOKEN,
@@ -24,11 +16,15 @@ import {
   DESTINATION_PREFIX_MONTH_TOKEN,
   DESTINATION_PREFIX_TOKENS,
   DESTINATION_PREFIX_YEAR_TOKEN,
+  EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
+  EXPORTED_COUNT_LOG_FIELD,
+  EXPORTED_COUNT_METRIC_NAME,
+  EXPORTED_COUNT_METRIC_NAMESPACE,
   MAX_DESTINATION_PREFIX_LENGTH,
   MAX_EXPORT_SPAN_DAYS,
   MIN_EXPORT_END_OFFSET_DAYS,
   MIN_EXPORT_SPAN_DAYS,
-} from '../settings/consts';
+} from './settings/consts';
 
 /**
  * Tag filter used to select CloudWatch Log groups for archiving.
@@ -173,6 +169,53 @@ const KNOWN_DESTINATION_PREFIX_TOKEN_PATTERN = new RegExp(
 const BRACED_TOKEN_PATTERN = /\{[^{}]*\}/g;
 
 /**
+ * Whether failure CloudWatch Alarms should be created.
+ * Alarms are created when `enabled` is true, or when a notification topic is provided.
+ *
+ * @param failureAlarm - Optional failure-alarm configuration from construct props.
+ * @returns `true` when failure alarms should be created.
+ */
+export const isFailureAlarmEnabled = (failureAlarm: {
+  readonly enabled?: boolean;
+  readonly notificationTopic?: object;
+} | undefined): boolean => {
+  if (failureAlarm === undefined) {
+    return false;
+  }
+  if (failureAlarm.enabled === true) {
+    return true;
+  }
+  return failureAlarm.notificationTopic !== undefined;
+};
+
+/**
+ * Maps a CloudWatch Metric dimension hash to CfnAlarm dimension properties.
+ * String values are passed through; non-string values are CDK tokens used as dimension values.
+ *
+ * @param dimensions - Metric dimension map, or `undefined` when the metric has none.
+ * @returns CfnAlarm dimensions, or `undefined` when there are no dimensions to emit.
+ */
+export const toCfnAlarmDimensions = (
+  dimensions: { readonly [name: string]: unknown } | undefined,
+): cloudwatch.CfnAlarm.DimensionProperty[] | undefined => {
+  if (dimensions === undefined) {
+    return undefined;
+  }
+  const names = Object.keys(dimensions);
+  if (names.length === 0) {
+    return undefined;
+  }
+  return names.map((name) => {
+    const value = dimensions[name];
+    if (typeof value === 'string') {
+      return { name, value };
+    }
+    // CDK tokens are objects at synth time and resolve to strings in CloudFormation.
+    return { name, value: value as string };
+  });
+};
+
+/**
  * Rejects an end offset that is not an integer of at least the configured minimum.
  *
  * @param value - `logExport.endOffsetDays`.
@@ -276,6 +319,8 @@ const toScheduleExportInput = (logExport: LogExportOptions | undefined): Schedul
  * CDK construct that sets up archiving of CloudWatch Logs to S3.
  * Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
  * that invokes the function daily to export tagged log groups to the bucket.
+ * By default each run exports the previous UTC calendar day.
+ * {@link LogExportOptions} can change that window and the S3 key prefix.
  * Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
  * failure or insufficient export count.
  */
@@ -285,7 +330,7 @@ export class CloudWatchLogsArchiver extends Construct {
    *
    * @param scope - Parent construct (e.g. Stack).
    * @param id - Construct ID.
-   * @param props - Configuration including the tag filter for target log groups.
+   * @param props - Tag filter for target log groups, plus optional export window and failure alarms.
    */
   constructor(scope: Construct, id: string, props: CloudWatchLogsArchiverProps) {
     super(scope, id);
@@ -366,7 +411,7 @@ export class CloudWatchLogsArchiver extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Schedule (Durable Functions: Lambda performs tag lookup, export, and polling in one run)
+    // Schedule (Durable Functions: Lambda performs tag lookup, export, and status waits in one run)
     new scheduler.Schedule(this, 'LogArchiveSchedule', {
       description: 'daily CloudWatch Logs archive schedule',
       enabled: true,
