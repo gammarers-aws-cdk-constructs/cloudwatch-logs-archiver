@@ -326,4 +326,81 @@ describe('CloudWatchLogsArchiver with failure alarm notification topic', () => {
   });
 });
 
+describe('CloudWatchLogsArchiver logExport', () => {
+  const env = {
+    account: '123456789012',
+    region: 'us-east-1',
+  };
+  const targetResource = {
+    tagKey: 'DailyLogExport',
+    tagValues: ['Yes'],
+  };
+
+  const synthesize = (logExport: {
+    endOffsetDays?: number;
+    spanDays?: number;
+    destinationPrefixTemplate?: string;
+  } | undefined): Template => {
+    const app = new App();
+    const stack = new Stack(app, 'LogExportStack', { env });
+    new CloudWatchLogsArchiver(stack, 'CloudWatchLogsArchiver', {
+      targetResource,
+      logExport,
+    });
+    return Template.fromStack(stack);
+  };
+
+  it('omits Export from the schedule input when logExport is empty', () => {
+    const template = synthesize({});
+    template.hasResourceProperties('AWS::Scheduler::Schedule', {
+      Target: Match.objectLike({
+        Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"]}}',
+      }),
+    });
+  });
+
+  it('puts only the set logExport fields on the schedule input', () => {
+    const template = synthesize({
+      destinationPrefixTemplate: '{yyyy}/{mm}/{dd}/{logGroup}/',
+    });
+    template.hasResourceProperties('AWS::Scheduler::Schedule', {
+      Target: Match.objectLike({
+        Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"DestinationPrefixTemplate":"{yyyy}/{mm}/{dd}/{logGroup}/"}}}',
+      }),
+    });
+  });
+
+  it('passes logExport through CloudWatchLogsArchiveStack', () => {
+    const app = new App();
+    const stack = new CloudWatchLogsArchiveStack(app, 'LogExportArchiveStack', {
+      env,
+      targetResource,
+      logExport: {
+        endOffsetDays: 2,
+        spanDays: 3,
+        destinationPrefixTemplate: '{yyyy}/{mm}/{dd}/{logGroup}/',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::Scheduler::Schedule', {
+      Target: Match.objectLike({
+        Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"EndOffsetDays":2,"SpanDays":3,"DestinationPrefixTemplate":"{yyyy}/{mm}/{dd}/{logGroup}/"}}}',
+      }),
+    });
+  });
+
+  it.each([
+    { name: 'end offset 0', logExport: { endOffsetDays: 0 }, message: 'endOffsetDays' },
+    { name: 'span 32', logExport: { spanDays: 32 }, message: 'spanDays' },
+    { name: 'fractional span', logExport: { spanDays: 1.5 }, message: 'spanDays' },
+    { name: 'unknown token', logExport: { destinationPrefixTemplate: '{week}/' }, message: 'unsupported token' },
+    { name: 'rejected character', logExport: { destinationPrefixTemplate: '{logGroup} {yyyy}/' }, message: 'rejects' },
+    { name: 'empty template', logExport: { destinationPrefixTemplate: '' }, message: 'must not be empty' },
+    { name: 'template longer than 512 characters', logExport: { destinationPrefixTemplate: 'a'.repeat(513) }, message: 'exceeds' },
+  ])('fails synth when logExport has $name', ({ logExport, message }) => {
+    expect(() => synthesize(logExport)).toThrow(message);
+  });
+});
+
 
