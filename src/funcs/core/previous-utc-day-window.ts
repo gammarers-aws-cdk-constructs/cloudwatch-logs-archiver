@@ -1,3 +1,6 @@
+import { listUtcExportWindows } from './export-window';
+import { DEFAULT_EXPORT_END_OFFSET_DAYS, DEFAULT_EXPORT_SPAN_DAYS } from '../../settings/consts';
+
 /**
  * Export window and S3 path date segments for the previous UTC calendar day.
  */
@@ -20,16 +23,15 @@ export interface PreviousUtcDayWindow {
  *
  * @param now - Reference instant (typically `new Date()` at invocation time).
  * @returns from/to epoch milliseconds and zero-padded date path segments.
+ * @throws Error when the default one-day window is empty.
  */
 export const getPreviousUtcDayWindow = (now: Date): PreviousUtcDayWindow => {
-  const from = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1);
-  const to = from + (1000 * 60 * 60 * 24) - 1;
-  const target = new Date(from);
-  return {
-    from,
-    to,
-    year: String(target.getUTCFullYear()),
-    month: ('00' + (target.getUTCMonth() + 1)).slice(-2),
-    day: ('00' + target.getUTCDate()).slice(-2),
-  };
+  const [window] = listUtcExportWindows(now, {
+    endOffsetDays: DEFAULT_EXPORT_END_OFFSET_DAYS,
+    spanDays: DEFAULT_EXPORT_SPAN_DAYS,
+  });
+  if (window === undefined) {
+    throw new Error('Expected the previous UTC day window.');
+  }
+  return window;
 };

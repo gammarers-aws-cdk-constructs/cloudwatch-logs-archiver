@@ -54,4 +54,5 @@ junit.xml
 /assets/
 !/src/funcs/log-archive-function.ts
 !/.editorconfig
+!/.devcontainer/devcontainer.json
 !/.projenrc.ts

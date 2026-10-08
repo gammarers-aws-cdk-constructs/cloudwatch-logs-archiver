@@ -8,15 +8,23 @@ import * as targets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 import { S3SecureBucket, S3SecureBucketType } from 's3-secure-bucket';
-import { isFailureAlarmEnabled } from './is-failure-alarm-enabled';
-import { toCfnAlarmDimensions } from './to-cfn-alarm-dimensions';
+import { LogArchiveFunction } from './funcs/log-archive-function';
 import {
+  DESTINATION_PREFIX_CHARACTERS,
+  DESTINATION_PREFIX_DAY_TOKEN,
+  DESTINATION_PREFIX_LOG_GROUP_TOKEN,
+  DESTINATION_PREFIX_MONTH_TOKEN,
+  DESTINATION_PREFIX_TOKENS,
+  DESTINATION_PREFIX_YEAR_TOKEN,
   EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
   EXPORTED_COUNT_LOG_FIELD,
   EXPORTED_COUNT_METRIC_NAME,
   EXPORTED_COUNT_METRIC_NAMESPACE,
-} from '../funcs/core/exported-count-metric';
-import { LogArchiveFunction } from '../funcs/log-archive-function';
+  MAX_DESTINATION_PREFIX_LENGTH,
+  MAX_EXPORT_SPAN_DAYS,
+  MIN_EXPORT_END_OFFSET_DAYS,
+  MIN_EXPORT_SPAN_DAYS,
+} from './settings/consts';
 
 /**
  * Tag filter used to select CloudWatch Log groups for archiving.
@@ -59,6 +67,38 @@ export interface FailureAlarmOptions {
 }
 
 /**
+ * UTC calendar-day window and S3 key prefix for each export task.
+ * Omitted properties keep yesterday, a one-day span, and `{logGroup}/{yyyy}/{mm}/{dd}/`.
+ * Each day is a separate CreateExportTask, oldest day first.
+ * On the daily schedule, a span above one day exports overlapping days again.
+ * CloudWatch Logs stores each task under its own task id, so those objects accumulate in the bucket.
+ */
+export interface LogExportOptions {
+  /**
+   * UTC calendar days before today that the window ends on.
+   * `1` ends the window on yesterday.
+   * @default 1
+   */
+  readonly endOffsetDays?: number;
+  /**
+   * Number of UTC calendar days to export, ending on the day selected by `endOffsetDays`.
+   * Must be an integer from 1 to 31.
+   * @default 1
+   */
+  readonly spanDays?: number;
+  /**
+   * S3 key prefix passed to CreateExportTask.
+   * Tokens, each wrapped in curly braces: `logGroup`, `yyyy`, `mm`, and `dd`.
+   * `logGroup` is the log group name with `/` replaced by `-`, one leading `-` removed,
+   * and `.` replaced by `--`.
+   * Other characters must be legal in a CreateExportTask destination prefix
+   * (letters, digits, and `.` `-` `_` `/` `#`).
+   * @default '{logGroup}/{yyyy}/{mm}/{dd}/'
+   */
+  readonly destinationPrefixTemplate?: string;
+}
+
+/**
  * Props for creating a {@link CloudWatchLogsArchiver} construct.
  */
 export interface CloudWatchLogsArchiverProps {
@@ -71,6 +111,12 @@ export interface CloudWatchLogsArchiverProps {
    * @default - failure alarms are not created
    */
   readonly failureAlarm?: FailureAlarmOptions;
+  /**
+   * Export window and S3 key prefix. Omit to export the previous UTC day under
+   * `{logGroup}/{yyyy}/{mm}/{dd}/`.
+   * @default - previous UTC day, one day, default prefix
+   */
+  readonly logExport?: LogExportOptions;
 }
 
 /** Default minimum successful exports per daily run. */
@@ -103,10 +149,178 @@ interface AddFailureAlarmsParams {
   readonly scheduleGroup: scheduler.ScheduleGroup;
 }
 
+/** Scheduler payload fields included only when the caller set them. */
+interface ScheduleExportInput {
+  /** UTC days before today that the window ends on. */
+  readonly EndOffsetDays?: number;
+  /** Number of UTC calendar days in the window. */
+  readonly SpanDays?: number;
+  /** Destination prefix template. */
+  readonly DestinationPrefixTemplate?: string;
+}
+
+const DESTINATION_PREFIX_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]+$`);
+const DESTINATION_PREFIX_LITERAL_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]*$`);
+const KNOWN_DESTINATION_PREFIX_TOKENS = new Set<string>(DESTINATION_PREFIX_TOKENS);
+const KNOWN_DESTINATION_PREFIX_TOKEN_PATTERN = new RegExp(
+  DESTINATION_PREFIX_TOKENS.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+  'g',
+);
+const BRACED_TOKEN_PATTERN = /\{[^{}]*\}/g;
+
+/**
+ * Whether failure CloudWatch Alarms should be created.
+ * Alarms are created when `enabled` is true, or when a notification topic is provided.
+ *
+ * @param failureAlarm - Optional failure-alarm configuration from construct props.
+ * @returns `true` when failure alarms should be created.
+ */
+export const isFailureAlarmEnabled = (failureAlarm: {
+  readonly enabled?: boolean;
+  readonly notificationTopic?: object;
+} | undefined): boolean => {
+  if (failureAlarm === undefined) {
+    return false;
+  }
+  if (failureAlarm.enabled === true) {
+    return true;
+  }
+  return failureAlarm.notificationTopic !== undefined;
+};
+
+/**
+ * Maps a CloudWatch Metric dimension hash to CfnAlarm dimension properties.
+ * String values are passed through; non-string values are CDK tokens used as dimension values.
+ *
+ * @param dimensions - Metric dimension map, or `undefined` when the metric has none.
+ * @returns CfnAlarm dimensions, or `undefined` when there are no dimensions to emit.
+ */
+export const toCfnAlarmDimensions = (
+  dimensions: { readonly [name: string]: unknown } | undefined,
+): cloudwatch.CfnAlarm.DimensionProperty[] | undefined => {
+  if (dimensions === undefined) {
+    return undefined;
+  }
+  const names = Object.keys(dimensions);
+  if (names.length === 0) {
+    return undefined;
+  }
+  return names.map((name) => {
+    const value = dimensions[name];
+    if (typeof value === 'string') {
+      return { name, value };
+    }
+    // CDK tokens are objects at synth time and resolve to strings in CloudFormation.
+    return { name, value: value as string };
+  });
+};
+
+/**
+ * Rejects an end offset that is not an integer of at least the configured minimum.
+ *
+ * @param value - `logExport.endOffsetDays`.
+ * @throws Error when the value is not an allowed integer. CDK synth surfaces this as a construct error.
+ */
+const assertExportEndOffsetDays = (value: number): void => {
+  if (Number.isInteger(value) && value >= MIN_EXPORT_END_OFFSET_DAYS) {
+    return;
+  }
+  throw new Error(
+    `logExport.endOffsetDays must be an integer greater than or equal to ${MIN_EXPORT_END_OFFSET_DAYS}.`,
+  );
+};
+
+/**
+ * Rejects a span that is not an integer within the configured minimum and maximum.
+ *
+ * @param value - `logExport.spanDays`.
+ * @throws Error when the value is outside the allowed range.
+ */
+const assertExportSpanDays = (value: number): void => {
+  if (Number.isInteger(value) && value >= MIN_EXPORT_SPAN_DAYS && value <= MAX_EXPORT_SPAN_DAYS) {
+    return;
+  }
+  throw new Error(
+    `logExport.spanDays must be an integer from ${MIN_EXPORT_SPAN_DAYS} to ${MAX_EXPORT_SPAN_DAYS}.`,
+  );
+};
+
+/**
+ * Rejects a prefix template that cannot produce a CreateExportTask destination prefix.
+ * Uses the same character set and token list as the Lambda, with a short sample log group name.
+ *
+ * @param template - `logExport.destinationPrefixTemplate`.
+ * @throws Error when the template is empty, has an unknown token, or cannot meet the prefix limits.
+ */
+const assertDestinationPrefixTemplate = (template: string): void => {
+  if (template.length === 0) {
+    throw new Error('logExport.destinationPrefixTemplate must not be empty.');
+  }
+
+  const unsupported = template.match(BRACED_TOKEN_PATTERN)?.find((token) => !KNOWN_DESTINATION_PREFIX_TOKENS.has(token));
+  if (unsupported !== undefined) {
+    throw new Error(`logExport.destinationPrefixTemplate contains unsupported token ${unsupported}.`);
+  }
+
+  const literals = template.replace(KNOWN_DESTINATION_PREFIX_TOKEN_PATTERN, '');
+  if (!DESTINATION_PREFIX_LITERAL_PATTERN.test(literals)) {
+    throw new Error(
+      'logExport.destinationPrefixTemplate contains characters that CreateExportTask destinationPrefix rejects.',
+    );
+  }
+
+  const sample = template
+    .replaceAll(DESTINATION_PREFIX_LOG_GROUP_TOKEN, 'a')
+    .replaceAll(DESTINATION_PREFIX_YEAR_TOKEN, '2026')
+    .replaceAll(DESTINATION_PREFIX_MONTH_TOKEN, '01')
+    .replaceAll(DESTINATION_PREFIX_DAY_TOKEN, '01');
+  if (sample.length > MAX_DESTINATION_PREFIX_LENGTH || !DESTINATION_PREFIX_PATTERN.test(sample)) {
+    throw new Error('logExport.destinationPrefixTemplate exceeds the CreateExportTask destinationPrefix limits.');
+  }
+};
+
+/**
+ * Validates `logExport` and returns only the fields the caller set, for the scheduler input.
+ * An omitted or empty options object returns `undefined` so the Lambda keeps its defaults
+ * and the synthesized schedule input stays unchanged.
+ *
+ * @param logExport - Construct prop, if provided.
+ * @returns Partial export payload, or `undefined` when nothing was set.
+ * @throws Error when a set field fails validation.
+ */
+const toScheduleExportInput = (logExport: LogExportOptions | undefined): ScheduleExportInput | undefined => {
+  if (logExport === undefined) {
+    return undefined;
+  }
+  if (logExport.endOffsetDays !== undefined) {
+    assertExportEndOffsetDays(logExport.endOffsetDays);
+  }
+  if (logExport.spanDays !== undefined) {
+    assertExportSpanDays(logExport.spanDays);
+  }
+  if (logExport.destinationPrefixTemplate !== undefined) {
+    assertDestinationPrefixTemplate(logExport.destinationPrefixTemplate);
+  }
+
+  const input: ScheduleExportInput = {
+    ...(logExport.endOffsetDays === undefined ? {} : { EndOffsetDays: logExport.endOffsetDays }),
+    ...(logExport.spanDays === undefined ? {} : { SpanDays: logExport.spanDays }),
+    ...(logExport.destinationPrefixTemplate === undefined
+      ? {}
+      : { DestinationPrefixTemplate: logExport.destinationPrefixTemplate }),
+  };
+  if (Object.keys(input).length === 0) {
+    return undefined;
+  }
+  return input;
+};
+
 /**
  * CDK construct that sets up archiving of CloudWatch Logs to S3.
  * Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
  * that invokes the function daily to export tagged log groups to the bucket.
+ * By default each run exports the previous UTC calendar day.
+ * {@link LogExportOptions} can change that window and the S3 key prefix.
  * Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
  * failure or insufficient export count.
  */
@@ -116,10 +330,12 @@ export class CloudWatchLogsArchiver extends Construct {
    *
    * @param scope - Parent construct (e.g. Stack).
    * @param id - Construct ID.
-   * @param props - Configuration including the tag filter for target log groups.
+   * @param props - Tag filter for target log groups, plus optional export window and failure alarms.
    */
   constructor(scope: Construct, id: string, props: CloudWatchLogsArchiverProps) {
     super(scope, id);
+
+    const exportInput = toScheduleExportInput(props.logExport);
 
     const logArchiveBucket = new S3SecureBucket(this, 'LogArchiveBucket', {
       bucketType: S3SecureBucketType.CLOUD_WATCH_LOG_ARCHIVE_BUCKET,
@@ -195,7 +411,7 @@ export class CloudWatchLogsArchiver extends Construct {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Schedule (Durable Functions: Lambda performs tag lookup, export, and polling in one run)
+    // Schedule (Durable Functions: Lambda performs tag lookup, export, and status waits in one run)
     new scheduler.Schedule(this, 'LogArchiveSchedule', {
       description: 'daily CloudWatch Logs archive schedule',
       enabled: true,
@@ -210,6 +426,7 @@ export class CloudWatchLogsArchiver extends Construct {
           Params: {
             TagKey: props.targetResource.tagKey,
             TagValues: props.targetResource.tagValues,
+            ...(exportInput === undefined ? {} : { Export: exportInput }),
           },
         }),
       }),

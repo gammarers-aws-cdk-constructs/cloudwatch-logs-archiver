@@ -26,6 +26,7 @@ type LogArchiveScheduleEvent = {
   Params: {
     TagKey: string;
     TagValues: string[];
+    Export?: unknown;
   };
 };
 
@@ -203,6 +204,57 @@ describe('Lambda Function Handler testing', () => {
         to: Date.parse(toIso),
         destinationPrefix,
       });
+    });
+
+    it('exports each UTC day oldest first when Params.Export sets the window and prefix', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-03-01T13:01:00.000Z'),
+        doNotFake: [...FAKE_TIMER_PASSTHROUGH],
+      });
+      mockCompletedExport(['example/log-group']);
+
+      const result = await invokeHandler({
+        Params: {
+          TagKey: 'DailyLogExport',
+          TagValues: ['Yes'],
+          Export: {
+            EndOffsetDays: 2,
+            SpanDays: 2,
+            DestinationPrefixTemplate: '{yyyy}/{mm}/{dd}/{logGroup}/',
+          },
+        },
+      });
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input)).toEqual([
+        {
+          destination: 'example-log-archive-bucket',
+          logGroupName: 'example/log-group',
+          from: Date.parse('2026-02-26T00:00:00.000Z'),
+          to: Date.parse('2026-02-26T23:59:59.999Z'),
+          destinationPrefix: '2026/02/26/example-log-group/',
+        },
+        {
+          destination: 'example-log-archive-bucket',
+          logGroupName: 'example/log-group',
+          from: Date.parse('2026-02-27T00:00:00.000Z'),
+          to: Date.parse('2026-02-27T23:59:59.999Z'),
+          destinationPrefix: '2026/02/27/example-log-group/',
+        },
+      ]);
+    });
+
+    it('returns FAILED when Params.Export.SpanDays is above 31', async () => {
+      const result = await invokeHandler({
+        Params: {
+          TagKey: 'DailyLogExport',
+          TagValues: ['Yes'],
+          Export: { SpanDays: 32 },
+        },
+      });
+
+      expect(getFailedErrorMessage(result)).toContain('SpanDays');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(0);
     });
 
     it('retries CreateExportTask once when DescribeExportTasks returns FAILED', async () => {
