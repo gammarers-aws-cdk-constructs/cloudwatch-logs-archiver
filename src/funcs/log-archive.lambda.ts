@@ -12,10 +12,12 @@ import {
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
+import { buildDestinationPrefix } from './core/destination-prefix';
 import { getExportBatchFailureMessage, hasExportBatchFailure } from './core/export-batch-failure';
+import { listUtcExportWindows, type UtcDayWindow } from './core/export-window';
 import { emitExportedCountMetricLog } from './core/exported-count-metric';
 import { isLimitExceededException } from './core/is-limit-exceeded-exception';
-import { getPreviousUtcDayWindow } from './core/previous-utc-day-window';
+import { resolveExportSettings } from './core/resolve-export-settings';
 
 /**
  * EventBridge Scheduler target input for the log archive Lambda.
@@ -27,7 +29,24 @@ interface ScheduleEvent {
     TagKey: string;
     /** Tag values to match; groups with any of these values are exported. */
     TagValues: string[];
+    /**
+     * Optional export window and prefix. Omitted fields use the Lambda defaults
+     * (previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`).
+     */
+    Export?: unknown;
   };
+}
+
+/**
+ * One CreateExportTask call: time range and rendered S3 prefix.
+ */
+interface ExportTaskTarget {
+  /** Epoch ms passed to CreateExportTask `from`. */
+  readonly from: number;
+  /** Epoch ms passed to CreateExportTask `to`. */
+  readonly to: number;
+  /** Rendered destination prefix. */
+  readonly destinationPrefix: string;
 }
 
 /**
@@ -98,15 +117,15 @@ const getErrorReason = (error: unknown): string => {
 };
 
 /**
- * Creates a CloudWatch Logs export task for the given log group and polls until it completes.
- * Exports the previous UTC calendar day's logs to the specified S3 bucket.
+ * Creates a CloudWatch Logs export task for one log group and one UTC day, then waits until it completes.
  * Retries CreateExportTask after Durable wait on LimitExceededException; retries once on FAILED.
  *
  * @param ctx - Durable execution context for steps and waits.
- * @param stepName - Base name for step IDs (e.g. `"export-0"`).
+ * @param stepName - Base name for step IDs (e.g. `"export-0-day-0"`).
  * @param cwLogs - CloudWatch Logs client.
  * @param bucketName - S3 bucket destination for the export.
  * @param logGroupName - Name of the log group to export.
+ * @param target - Time range and destination prefix for this day.
  * @param retried - Whether this call is already a FAILED-status retry (avoids infinite retry).
  * @returns Resolves when the export task reaches COMPLETED, CANCELLED, or PENDING_CANCEL.
  * @throws Error if CreateExportTask omits `taskId`, a non-LimitExceeded SDK error occurs,
@@ -118,11 +137,9 @@ const createExportLogGroup = async (
   cwLogs: CloudWatchLogsClient,
   bucketName: string,
   logGroupName: string,
+  target: ExportTaskTarget,
   retried = false,
 ): Promise<void> => {
-  const safeLogGroupName = logGroupName.replace(/\//g, '-').replace(/^-/, '').replace(/\./g, '--');
-  const { from, to, year, month, day } = getPreviousUtcDayWindow(new Date());
-
   let createAttempt = 0;
   let createResult: CreateExportTaskStepResult;
 
@@ -132,9 +149,9 @@ const createExportLogGroup = async (
         const result = await cwLogs.send(new CreateExportTaskCommand({
           destination: bucketName,
           logGroupName,
-          from,
-          to,
-          destinationPrefix: `${safeLogGroupName}/${year}/${month}/${day}/`,
+          from: target.from,
+          to: target.to,
+          destinationPrefix: target.destinationPrefix,
         }));
         if (!result.taskId) {
           throw new Error(`CreateExportTask did not return taskId for log group: ${logGroupName}`);
@@ -176,7 +193,7 @@ const createExportLogGroup = async (
     if (status === 'FAILED') {
       if (!retried) {
         await ctx.wait(`${stepName}-retry-wait`, { seconds: PENDING_WAIT_SECONDS });
-        return createExportLogGroup(ctx, `${stepName}-retry`, cwLogs, bucketName, logGroupName, true);
+        return createExportLogGroup(ctx, `${stepName}-retry`, cwLogs, bucketName, logGroupName, target, true);
       }
       throw new Error(`Export task ${taskId} failed for log group: ${logGroupName}`);
     }
@@ -190,15 +207,66 @@ const createExportLogGroup = async (
 };
 
 /**
+ * Exports each UTC day in the window for one log group, oldest day first.
+ * Days run one after another so each CreateExportTask gets that day's prefix.
+ *
+ * @param ctx - Durable execution context for the map item.
+ * @param stepName - Base name for this log group (e.g. `"export-0"`).
+ * @param cwLogs - CloudWatch Logs client.
+ * @param bucketName - S3 bucket destination for the export.
+ * @param logGroupName - Name of the log group to export.
+ * @param windows - UTC days to export, oldest first.
+ * @param destinationPrefixTemplate - Prefix template applied to each day.
+ * @returns Resolves when every day in the window has completed.
+ * @throws CloudWatchLogsArchiverValidateError when a rendered prefix is illegal.
+ * @throws Error when an export task fails after one retry.
+ */
+const exportLogGroupDays = async (
+  ctx: DurableContext,
+  stepName: string,
+  cwLogs: CloudWatchLogsClient,
+  bucketName: string,
+  logGroupName: string,
+  windows: readonly UtcDayWindow[],
+  destinationPrefixTemplate: string,
+): Promise<void> => {
+  for (let dayIndex = 0; dayIndex < windows.length; dayIndex += 1) {
+    const window = windows[dayIndex];
+    if (window === undefined) {
+      throw new Error(`Missing export window at index ${dayIndex}.`);
+    }
+    const destinationPrefix = buildDestinationPrefix(destinationPrefixTemplate, {
+      logGroupName,
+      year: window.year,
+      month: window.month,
+      day: window.day,
+    });
+    await createExportLogGroup(
+      ctx,
+      `${stepName}-day-${dayIndex}`,
+      cwLogs,
+      bucketName,
+      logGroupName,
+      {
+        from: window.from,
+        to: window.to,
+        destinationPrefix,
+      },
+    );
+  }
+};
+
+/**
  * Durable Lambda handler for archiving CloudWatch Logs to S3.
  * Discovers log groups by tag via the Resource Groups Tagging API, then exports
- * the previous calendar day's logs for each group to the configured S3 bucket.
+ * the configured UTC window for each group to the configured S3 bucket.
  *
- * @param event - Scheduler input with `Params.TagKey` and `Params.TagValues`.
+ * @param event - Scheduler input with `Params.TagKey`, `Params.TagValues`, and optional `Params.Export`.
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
  * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
  * @throws Error if `Params` are missing or invalid.
+ * @throws CloudWatchLogsArchiverValidateError if `Params.Export` is present and invalid.
  * @throws Error if one or more log group exports fail (`failureCount` > 0).
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
@@ -213,6 +281,10 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
   if (!params?.TagKey || !params?.TagValues) {
     throw new Error('Invalid event: Params.TagKey, Params.TagValues, Params.Mode are required.');
   }
+
+  const exportSettings = resolveExportSettings(params.Export);
+  const windows = listUtcExportWindows(new Date(), exportSettings);
+
   logGroupNames = await context.step('get-resources', async () => {
     const taggingClient = new ResourceGroupsTaggingAPIClient({});
     const arns: string[] = [];
@@ -237,12 +309,14 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
     'export-log-groups',
     logGroupNames,
     async (ctx, logGroupName, index) => {
-      await createExportLogGroup(
+      await exportLogGroupDays(
         ctx,
         `export-${index}`,
         cwLogs,
         bucketName,
         logGroupName,
+        windows,
+        exportSettings.destinationPrefixTemplate,
       );
       return { logGroupName };
     },
