@@ -8,6 +8,8 @@ CDK construct that sets up archiving of CloudWatch Logs to S3.
 
 Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
 that invokes the function daily to export tagged log groups to the bucket.
+By default each run exports the previous UTC calendar day.
+{@link LogExportOptions} can change that window and the S3 key prefix.
 Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
 failure or insufficient export count.
 
@@ -23,7 +25,7 @@ new CloudWatchLogsArchiver(scope: Construct, id: string, props: CloudWatchLogsAr
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | - Parent construct (e.g. Stack). |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer.parameter.id">id</a></code> | <code>string</code> | - Construct ID. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer.parameter.props">props</a></code> | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps">CloudWatchLogsArchiverProps</a></code> | - Configuration including the tag filter for target log groups. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer.parameter.props">props</a></code> | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps">CloudWatchLogsArchiverProps</a></code> | - Tag filter for target log groups, plus optional export window and failure alarms. |
 
 ---
 
@@ -47,7 +49,7 @@ Construct ID.
 
 - *Type:* <a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps">CloudWatchLogsArchiverProps</a>
 
-Configuration including the tag filter for target log groups.
+Tag filter for target log groups, plus optional export window and failure alarms.
 
 ---
 
@@ -154,7 +156,7 @@ The tree node.
 
 CDK Stack that deploys the daily CloudWatch Logs archive solution.
 
-Contains a single {@link CloudWatchLogsArchiver} construct configured with the given tag filter.
+Contains a single {@link CloudWatchLogsArchiver} construct.
 
 #### Initializers <a name="Initializers" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStack.Initializer"></a>
 
@@ -168,7 +170,7 @@ new CloudWatchLogsArchiveStack(scope: Construct, id: string, props: CloudWatchLo
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStack.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | - Parent construct (e.g. App). |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStack.Initializer.parameter.id">id</a></code> | <code>string</code> | - Stack ID. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStack.Initializer.parameter.props">props</a></code> | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps">CloudWatchLogsArchiveStackProps</a></code> | - Stack props including targetResource for log group selection. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStack.Initializer.parameter.props">props</a></code> | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps">CloudWatchLogsArchiveStackProps</a></code> | - Stack props, including the archive construct options. |
 
 ---
 
@@ -192,7 +194,7 @@ Stack ID.
 
 - *Type:* <a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps">CloudWatchLogsArchiveStackProps</a>
 
-Stack props including targetResource for log group selection.
+Stack props, including the archive construct options.
 
 ---
 
@@ -1129,6 +1131,7 @@ const cloudWatchLogsArchiverProps: CloudWatchLogsArchiverProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window and S3 key prefix. |
 
 ---
 
@@ -1160,11 +1163,27 @@ Omit to skip alarm creation. Alarms are created when `enabled` is true or
 
 ---
 
+##### `logExport`<sup>Optional</sup> <a name="logExport" id="cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.logExport"></a>
+
+```typescript
+public readonly logExport: LogExportOptions;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a>
+- *Default:* previous UTC day, one day, default prefix
+
+Export window and S3 key prefix.
+
+Omit to export the previous UTC day under
+`{logGroup}/{yyyy}/{mm}/{dd}/`.
+
+---
+
 ### CloudWatchLogsArchiveStackProps <a name="CloudWatchLogsArchiveStackProps" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps"></a>
 
 Props for the {@link CloudWatchLogsArchiveStack}.
 
-Extends StackProps with the tag filter for target log groups.
+{@link CloudWatchLogsArchiver} options plus standard stack props.
 
 #### Initializer <a name="Initializer" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.Initializer"></a>
 
@@ -1178,6 +1197,9 @@ const cloudWatchLogsArchiveStackProps: CloudWatchLogsArchiveStackProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window and S3 key prefix. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.analyticsReporting">analyticsReporting</a></code> | <code>boolean</code> | Include runtime versioning information in this Stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.crossRegionReferences">crossRegionReferences</a></code> | <code>boolean</code> | Enable this flag to allow native cross region stack references. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.description">description</a></code> | <code>string</code> | A description of the stack. |
@@ -1190,8 +1212,50 @@ const cloudWatchLogsArchiveStackProps: CloudWatchLogsArchiveStackProps = { ... }
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.synthesizer">synthesizer</a></code> | <code>aws-cdk-lib.IStackSynthesizer</code> | Synthesis method to use while deploying this stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.tags">tags</a></code> | <code>{[ key: string ]: string}</code> | Tags that will be applied to the Stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.terminationProtection">terminationProtection</a></code> | <code>boolean</code> | Whether to enable termination protection for this stack. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag key and values used to select CloudWatch Log groups for daily archiving. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms passed through to {@link CloudWatchLogsArchiver}. |
+
+---
+
+##### `targetResource`<sup>Required</sup> <a name="targetResource" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource"></a>
+
+```typescript
+public readonly targetResource: TargetResource;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a>
+
+Tag filter to identify which log groups to archive daily.
+
+---
+
+##### `failureAlarm`<sup>Optional</sup> <a name="failureAlarm" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm"></a>
+
+```typescript
+public readonly failureAlarm: FailureAlarmOptions;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
+- *Default:* failure alarms are not created
+
+Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+
+Omit to skip alarm creation. Alarms are created when `enabled` is true or
+{@link FailureAlarmOptions.notificationTopic} is set.
+
+---
+
+##### `logExport`<sup>Optional</sup> <a name="logExport" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.logExport"></a>
+
+```typescript
+public readonly logExport: LogExportOptions;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a>
+- *Default:* previous UTC day, one day, default prefix
+
+Export window and S3 key prefix.
+
+Omit to export the previous UTC day under
+`{logGroup}/{yyyy}/{mm}/{dd}/`.
 
 ---
 
@@ -1439,31 +1503,6 @@ Whether to enable termination protection for this stack.
 
 ---
 
-##### `targetResource`<sup>Required</sup> <a name="targetResource" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource"></a>
-
-```typescript
-public readonly targetResource: TargetResource;
-```
-
-- *Type:* <a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a>
-
-Tag key and values used to select CloudWatch Log groups for daily archiving.
-
----
-
-##### `failureAlarm`<sup>Optional</sup> <a name="failureAlarm" id="cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm"></a>
-
-```typescript
-public readonly failureAlarm: FailureAlarmOptions;
-```
-
-- *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
-- *Default:* failure alarms are not created
-
-Failure alarms passed through to {@link CloudWatchLogsArchiver}.
-
----
-
 ### FailureAlarmOptions <a name="FailureAlarmOptions" id="cloudwatch-logs-archiver.FailureAlarmOptions"></a>
 
 Failure-alarm and notification settings for {@link CloudWatchLogsArchiver}.
@@ -1534,6 +1573,82 @@ public readonly notificationTopic: ITopic;
 Existing SNS topic that receives failure ALARM-state notifications.
 
 Specifying a topic also enables failure-alarm creation.
+
+---
+
+### LogExportOptions <a name="LogExportOptions" id="cloudwatch-logs-archiver.LogExportOptions"></a>
+
+UTC calendar-day window and S3 key prefix for each export task.
+
+Omitted properties keep yesterday, a one-day span, and `{logGroup}/{yyyy}/{mm}/{dd}/`.
+Each day is a separate CreateExportTask, oldest day first.
+On the daily schedule, a span above one day exports overlapping days again.
+CloudWatch Logs stores each task under its own task id, so those objects accumulate in the bucket.
+
+#### Initializer <a name="Initializer" id="cloudwatch-logs-archiver.LogExportOptions.Initializer"></a>
+
+```typescript
+import { LogExportOptions } from 'cloudwatch-logs-archiver'
+
+const logExportOptions: LogExportOptions = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.destinationPrefixTemplate">destinationPrefixTemplate</a></code> | <code>string</code> | S3 key prefix passed to CreateExportTask. |
+| <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.endOffsetDays">endOffsetDays</a></code> | <code>number</code> | UTC calendar days before today that the window ends on. |
+| <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.spanDays">spanDays</a></code> | <code>number</code> | Number of UTC calendar days to export, ending on the day selected by `endOffsetDays`. |
+
+---
+
+##### `destinationPrefixTemplate`<sup>Optional</sup> <a name="destinationPrefixTemplate" id="cloudwatch-logs-archiver.LogExportOptions.property.destinationPrefixTemplate"></a>
+
+```typescript
+public readonly destinationPrefixTemplate: string;
+```
+
+- *Type:* string
+- *Default:* '{logGroup}/{yyyy}/{mm}/{dd}/'
+
+S3 key prefix passed to CreateExportTask.
+
+Tokens, each wrapped in curly braces: `logGroup`, `yyyy`, `mm`, and `dd`.
+`logGroup` is the log group name with `/` replaced by `-`, one leading `-` removed,
+and `.` replaced by `--`.
+Other characters must be legal in a CreateExportTask destination prefix
+(letters, digits, and `.` `-` `_` `/` `#`).
+
+---
+
+##### `endOffsetDays`<sup>Optional</sup> <a name="endOffsetDays" id="cloudwatch-logs-archiver.LogExportOptions.property.endOffsetDays"></a>
+
+```typescript
+public readonly endOffsetDays: number;
+```
+
+- *Type:* number
+- *Default:* 1
+
+UTC calendar days before today that the window ends on.
+
+`1` ends the window on yesterday.
+
+---
+
+##### `spanDays`<sup>Optional</sup> <a name="spanDays" id="cloudwatch-logs-archiver.LogExportOptions.property.spanDays"></a>
+
+```typescript
+public readonly spanDays: number;
+```
+
+- *Type:* number
+- *Default:* 1
+
+Number of UTC calendar days to export, ending on the day selected by `endOffsetDays`.
+
+Must be an integer from 1 to 31.
 
 ---
 
