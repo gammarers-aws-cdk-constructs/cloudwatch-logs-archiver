@@ -1,7 +1,12 @@
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Topic } from 'aws-cdk-lib/aws-sns';
-import { CloudWatchLogsArchiveStack, CloudWatchLogsArchiver } from '../src';
+import {
+  CloudWatchLogsArchiveStack,
+  CloudWatchLogsArchiver,
+  ExportFailureMode,
+  type LogExportOptions,
+} from '../src';
 
 describe('CloudWatchLogsArchiveStack Testing', () => {
   const app = new App();
@@ -336,11 +341,7 @@ describe('CloudWatchLogsArchiver logExport', () => {
     tagValues: ['Yes'],
   };
 
-  const synthesize = (logExport: {
-    endOffsetDays?: number;
-    spanDays?: number;
-    destinationPrefixTemplate?: string;
-  } | undefined): Template => {
+  const synthesize = (logExport: LogExportOptions | undefined): Template => {
     const app = new App();
     const stack = new Stack(app, 'LogExportStack', { env });
     new CloudWatchLogsArchiver(stack, 'CloudWatchLogsArchiver', {
@@ -366,6 +367,18 @@ describe('CloudWatchLogsArchiver logExport', () => {
     template.hasResourceProperties('AWS::Scheduler::Schedule', {
       Target: Match.objectLike({
         Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"DestinationPrefixTemplate":"{yyyy}/{mm}/{dd}/{logGroup}/"}}}',
+      }),
+    });
+  });
+
+  it.each([
+    { failureMode: ExportFailureMode.FAIL_FAST, expected: 'FAIL_FAST' },
+    { failureMode: ExportFailureMode.CONTINUE, expected: 'CONTINUE' },
+  ])('puts FailureMode $expected on the schedule input', ({ failureMode, expected }) => {
+    const template = synthesize({ failureMode });
+    template.hasResourceProperties('AWS::Scheduler::Schedule', {
+      Target: Match.objectLike({
+        Input: `{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"FailureMode":"${expected}"}}}`,
       }),
     });
   });

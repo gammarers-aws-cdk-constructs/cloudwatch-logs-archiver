@@ -16,6 +16,8 @@ import {
   DESTINATION_PREFIX_MONTH_TOKEN,
   DESTINATION_PREFIX_TOKENS,
   DESTINATION_PREFIX_YEAR_TOKEN,
+  EXPORT_FAILURE_MODE_CONTINUE,
+  EXPORT_FAILURE_MODE_FAIL_FAST,
   EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
   EXPORTED_COUNT_LOG_FIELD,
   EXPORTED_COUNT_METRIC_NAME,
@@ -67,8 +69,20 @@ export interface FailureAlarmOptions {
 }
 
 /**
- * UTC calendar-day window and S3 key prefix for each export task.
- * Omitted properties keep yesterday, a one-day span, and `{logGroup}/{yyyy}/{mm}/{dd}/`.
+ * What a daily run does when a log group export fails.
+ * Either way the run ends with a Lambda error that names the failed log groups.
+ */
+export enum ExportFailureMode {
+  /** Stop at the first failed log group. Later log groups are not exported in that run. */
+  FAIL_FAST = 'FAIL_FAST',
+  /** Export every remaining log group, then fail the run. */
+  CONTINUE = 'CONTINUE',
+}
+
+/**
+ * UTC calendar-day window, S3 key prefix, and failure handling for each export task.
+ * Omitted properties keep yesterday, a one-day span, `{logGroup}/{yyyy}/{mm}/{dd}/`,
+ * and {@link ExportFailureMode.FAIL_FAST}.
  * Each day is a separate CreateExportTask, oldest day first.
  * On the daily schedule, a span above one day exports overlapping days again.
  * CloudWatch Logs stores each task under its own task id, so those objects accumulate in the bucket.
@@ -96,6 +110,11 @@ export interface LogExportOptions {
    * @default '{logGroup}/{yyyy}/{mm}/{dd}/'
    */
   readonly destinationPrefixTemplate?: string;
+  /**
+   * Whether a failed log group stops the run or the remaining log groups are still exported.
+   * @default ExportFailureMode.FAIL_FAST
+   */
+  readonly failureMode?: ExportFailureMode;
 }
 
 /**
@@ -112,9 +131,9 @@ export interface CloudWatchLogsArchiverProps {
    */
   readonly failureAlarm?: FailureAlarmOptions;
   /**
-   * Export window and S3 key prefix. Omit to export the previous UTC day under
-   * `{logGroup}/{yyyy}/{mm}/{dd}/`.
-   * @default - previous UTC day, one day, default prefix
+   * Export window, S3 key prefix, and failure handling. Omit to export the previous UTC day under
+   * `{logGroup}/{yyyy}/{mm}/{dd}/` and stop at the first failed log group.
+   * @default - previous UTC day, one day, default prefix, FAIL_FAST
    */
   readonly logExport?: LogExportOptions;
 }
@@ -157,7 +176,15 @@ interface ScheduleExportInput {
   readonly SpanDays?: number;
   /** Destination prefix template. */
   readonly DestinationPrefixTemplate?: string;
+  /** `FAIL_FAST` or `CONTINUE`. */
+  readonly FailureMode?: string;
 }
+
+/** Scheduler `FailureMode` value for each public {@link ExportFailureMode}. */
+const SCHEDULE_FAILURE_MODES: Record<ExportFailureMode, string> = {
+  [ExportFailureMode.FAIL_FAST]: EXPORT_FAILURE_MODE_FAIL_FAST,
+  [ExportFailureMode.CONTINUE]: EXPORT_FAILURE_MODE_CONTINUE,
+};
 
 const DESTINATION_PREFIX_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]+$`);
 const DESTINATION_PREFIX_LITERAL_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]*$`);
@@ -308,6 +335,9 @@ const toScheduleExportInput = (logExport: LogExportOptions | undefined): Schedul
     ...(logExport.destinationPrefixTemplate === undefined
       ? {}
       : { DestinationPrefixTemplate: logExport.destinationPrefixTemplate }),
+    ...(logExport.failureMode === undefined
+      ? {}
+      : { FailureMode: SCHEDULE_FAILURE_MODES[logExport.failureMode] }),
   };
   if (Object.keys(input).length === 0) {
     return undefined;

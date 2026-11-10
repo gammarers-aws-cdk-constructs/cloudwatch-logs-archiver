@@ -13,7 +13,11 @@ import {
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
 import { buildDestinationPrefix } from './core/destination-prefix';
-import { getExportBatchFailureMessage, hasExportBatchFailure } from './core/export-batch-failure';
+import {
+  getExportBatchFailureMessage,
+  hasExportBatchFailure,
+  toExportCompletionConfig,
+} from './core/export-batch-failure';
 import { ExportFailureRetry, shouldRetryFailedExport } from './core/export-failure-retry';
 import {
   EXPORT_TASK_STATUS_PENDING,
@@ -39,8 +43,8 @@ interface ScheduleEvent {
     /** Tag values to match; groups with any of these values are exported. */
     TagValues: string[];
     /**
-     * Optional export window and prefix. Omitted fields use the Lambda defaults
-     * (previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`).
+     * Optional export window, prefix, and failure mode. Omitted fields use the Lambda defaults
+     * (previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`, `FAIL_FAST`).
      */
     Export?: unknown;
   };
@@ -287,6 +291,8 @@ const exportLogGroupDays = async (
  * Durable Lambda handler for archiving CloudWatch Logs to S3.
  * Discovers log groups by tag via the Resource Groups Tagging API, then exports
  * the configured UTC window for each group to the configured S3 bucket.
+ * With `FailureMode` `FAIL_FAST` (default) the run stops at the first failed log group;
+ * with `CONTINUE` it exports every remaining group before failing.
  *
  * @param event - Scheduler input with `Params.TagKey`, `Params.TagValues`, and optional `Params.Export`.
  * @param context - Durable execution context (steps, map, logger).
@@ -294,7 +300,8 @@ const exportLogGroupDays = async (
  * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
  * @throws Error if `Params`, `Params.TagKey`, or `Params.TagValues` is missing or empty.
  * @throws CloudWatchLogsArchiverValidateError if `Params.Export` is present and invalid.
- * @throws Error if one or more log group exports fail (`failureCount` > 0).
+ * @throws Error if one or more log group exports fail. The message names the failed log groups
+ *   and counts log groups not attempted after a `FAIL_FAST` stop.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
@@ -347,18 +354,30 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
       );
       return { logGroupName };
     },
-    { maxConcurrency: 1 },
+    {
+      maxConcurrency: 1,
+      completionConfig: toExportCompletionConfig(exportSettings.failureMode),
+    },
   );
 
   const exportedCount = mapResult.successCount;
   emitExportedCountMetricLog(exportedCount);
 
   if (hasExportBatchFailure(mapResult.failureCount)) {
+    const failedLogGroups = mapResult.failed().map((item) => logGroupNames[item.index] ?? `index ${item.index}`);
+    const notAttemptedCount = logGroupNames.length - mapResult.successCount - mapResult.failureCount;
     context.logger.error('Log archiver completed with export failures', {
       exportedCount,
       failureCount: mapResult.failureCount,
+      notAttemptedCount,
+      failureMode: exportSettings.failureMode,
+      failedLogGroups,
     });
-    throw new Error(getExportBatchFailureMessage(mapResult.failureCount, mapResult.totalCount));
+    throw new Error(getExportBatchFailureMessage({
+      failedLogGroups,
+      totalCount: logGroupNames.length,
+      notAttemptedCount,
+    }));
   }
 
   context.logger.info('Log archiver completed', { exportedCount });

@@ -17,6 +17,7 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 - **Configurable UTC export window** – By default, exports the previous UTC calendar day (`00:00:00.000`–`23:59:59.999`) with S3 prefix `{logGroup}/{yyyy}/{mm}/{dd}/`. `logExport.endOffsetDays`, `logExport.spanDays` (1–31), and `logExport.destinationPrefixTemplate` change the window and key layout. Each day is its own export task, oldest day first. On the daily schedule, `spanDays` above 1 writes another copy of overlapping days, because each task id gets its own objects.
 - **Export slot wait/retry** – On `LimitExceededException` (one concurrent export per account/region), waits with Durable execution and retries `CreateExportTask`, logging the failure reason.
 - **Serial exports** – Processes one log group at a time so the account/region export quota is respected.
+- **Choosable partial-failure handling** – By default a run stops at the first log group that fails. Set `logExport.failureMode` to `ExportFailureMode.CONTINUE` to export the remaining log groups first. Either way the run fails and names the failed log groups.
 - **Secure bucket** – S3 bucket from [`s3-secure-bucket`](https://www.npmjs.com/package/s3-secure-bucket) (`CLOUD_WATCH_LOG_ARCHIVE_BUCKET`) with a resource policy allowing CloudWatch Logs export tasks to deliver data.
 - **Versioned invocation** – Lambda alias `live` is used as the scheduler target for stable, versioned deployments.
 - **Failure detection and notification** – Optional failure CloudWatch Alarms on Lambda errors, EventBridge Scheduler target errors / dropped invocations, and insufficient `ExportedCount`. Enable with `failureAlarm.enabled`, and pass an existing SNS topic as `failureAlarm.notificationTopic` to receive notifications (the construct never creates a topic).
@@ -27,7 +28,8 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 2. **Discovery** – The Lambda resolves matching CloudWatch Log groups via the Resource Groups Tagging API.
 3. **Export** – For each log group (one at a time), it calls `CreateExportTask` once per UTC day in the window (default: the previous UTC calendar day, oldest day first) and waits on `DescribeExportTasks` until completion.
 4. **Retries** – `LimitExceededException` triggers a Durable wait and another create attempt; a `FAILED` task status is retried once.
-5. **Notify on failure** – If any export fails, the Lambda throws. When failure alarms are enabled (`failureAlarm.enabled` or `failureAlarm.notificationTopic`), CloudWatch Alarms fire on Lambda errors, Scheduler delivery failures, and insufficient `ExportedCount`. Notifications are sent only when you pass an existing SNS topic.
+5. **Partial failure** – A log group fails when its export task is still `FAILED` after that retry. With `ExportFailureMode.FAIL_FAST` (default) the run stops there, and later log groups are not exported until the next run. With `ExportFailureMode.CONTINUE` the remaining log groups are still exported.
+6. **Notify on failure** – If any export fails, the Lambda throws. The error message lists up to ten failed log group names and, after a `FAIL_FAST` stop, how many log groups were not attempted. The structured `ERROR` log lists every failed log group in `failedLogGroups`. `ExportedCount` counts only successful log groups. When failure alarms are enabled (`failureAlarm.enabled` or `failureAlarm.notificationTopic`), CloudWatch Alarms fire on Lambda errors, Scheduler delivery failures, and insufficient `ExportedCount`. Notifications are sent only when you pass an existing SNS topic.
 
 Tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only those groups are archived.
 
@@ -103,6 +105,22 @@ new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
 
 `spanDays` above 1 still runs on the daily schedule, so each later run exports the overlapping days again. CloudWatch Logs writes a new task id for every `CreateExportTask`, and those objects stay in the bucket.
 
+To keep exporting the other log groups when one fails:
+
+```typescript
+import { CloudWatchLogsArchiver, ExportFailureMode } from 'cloudwatch-logs-archiver';
+
+new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
+  targetResource: {
+    tagKey: 'DailyLogExport',
+    tagValues: ['Yes'],
+  },
+  logExport: {
+    failureMode: ExportFailureMode.CONTINUE,
+  },
+});
+```
+
 Alternatively, use the dedicated stack that contains the construct:
 
 ```typescript
@@ -128,7 +146,7 @@ For one-time or ad-hoc exports (for example a historical date range), see [AWS C
 |--------|------|-------------|
 | `targetResource` | `TargetResource` | Tag filter to identify which log groups to archive daily. |
 | `failureAlarm` | `FailureAlarmOptions` | Optional failure alarms. Created when `enabled` is true or `notificationTopic` is set. |
-| `logExport` | `LogExportOptions` | Optional UTC window and S3 prefix. Omitted properties keep the previous UTC day, one day, and `{logGroup}/{yyyy}/{mm}/{dd}/`. |
+| `logExport` | `LogExportOptions` | Optional UTC window, S3 prefix, and failure mode. Omitted properties keep the previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`, and `FAIL_FAST`. |
 
 ### `CloudWatchLogsArchiveStack`
 
@@ -162,6 +180,14 @@ Inherits standard [`StackProps`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws
 | `endOffsetDays` | `number` | UTC calendar days before today that the window ends on (default `1`, yesterday). Integer ≥ 1. |
 | `spanDays` | `number` | How many UTC days to export, ending on that day (default `1`, maximum `31`). Each day is one `CreateExportTask`, oldest first. Above 1, the daily schedule exports overlapping days again and a new task id stores another copy. |
 | `destinationPrefixTemplate` | `string` | S3 key prefix. Tokens in curly braces: `logGroup`, `yyyy`, `mm`, `dd`. Default `{logGroup}/{yyyy}/{mm}/{dd}/`. `logGroup` replaces `/` with `-`, removes one leading `-`, and replaces `.` with `--`. Other characters must be letters, digits, or `.` `-` `_` `/` `#`. |
+| `failureMode` | `ExportFailureMode` | What a run does when a log group fails (default `ExportFailureMode.FAIL_FAST`). |
+
+### `ExportFailureMode`
+
+| Value | Description |
+|-------|-------------|
+| `FAIL_FAST` | Stop at the first failed log group. Later log groups are not exported in that run. |
+| `CONTINUE` | Export every remaining log group, then fail the run. |
 
 ## API
 
@@ -172,6 +198,10 @@ See [API.md](API.md).
 - **Node.js** >= 20.0.0
 - **AWS CDK** (peer): `aws-cdk-lib` ^2.232.0
 - **Constructs** (peer): `constructs` ^10.5.1
+
+## Notes
+
+- **Partial failure** – One failed log group always makes the run fail, so the Lambda `Errors` alarm fires in both failure modes. With `FAIL_FAST`, the log groups after the failure are not exported that day, and the next daily run exports only its own window. Re-export the missed days with `spanDays` or an ad-hoc export. `CONTINUE` avoids this but keeps a run with a broken log group going until every group is tried.
 
 ## License
 

@@ -279,7 +279,7 @@ describe('Lambda Function Handler testing', () => {
 
       const result = await invokeHandler(SCHEDULE_EVENT);
 
-      expect(getFailedErrorMessage(result)).toContain('Export failed for 1 of 1 log group(s)');
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 1 log group(s): example/log-group');
     });
 
     it('follows Resource Groups Tagging API pagination and exports every page', async () => {
@@ -322,18 +322,61 @@ describe('Lambda Function Handler testing', () => {
       expect(cwLogsMock.commandCalls(DescribeExportTasksCommand)).toHaveLength(1);
     });
 
-    it('stops at the first failed log group and does not export the rest', async () => {
+  });
+
+  describe('Partial export failure (Params.Export.FailureMode)', () => {
+    /** group-a stays FAILED after its one retry; the other groups complete. */
+    const mockFirstGroupFailure = (): void => {
       mockCompletedExport(['group-a', 'group-b', 'group-c']);
       cwLogsMock.on(CreateExportTaskCommand, { logGroupName: 'group-a' }).resolves({ taskId: 'failed-task' });
       cwLogsMock.on(DescribeExportTasksCommand, { taskId: 'failed-task' }).resolves({
         exportTasks: [{ status: { code: 'FAILED' } }],
       });
+    };
 
-      const result = await invokeHandler(SCHEDULE_EVENT);
+    const exportedLogGroupNames = (): (string | undefined)[] =>
+      cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName);
 
-      expect(getFailedErrorMessage(result)).toContain('Export failed');
-      expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName))
-        .toEqual(['group-a', 'group-a']);
+    it.each([
+      { name: 'FailureMode is omitted', exportInput: undefined },
+      { name: 'FailureMode is FAIL_FAST', exportInput: { FailureMode: 'FAIL_FAST' } },
+    ])('stops at the first failed log group when $name', async ({ exportInput }) => {
+      mockFirstGroupFailure();
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, ...(exportInput === undefined ? {} : { Export: exportInput }) },
+      });
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 3 log group(s); 2 not attempted: group-a');
+      expect(exportedLogGroupNames()).toEqual(['group-a', 'group-a']);
+    });
+
+    it('exports the remaining log groups and then fails when FailureMode is CONTINUE', async () => {
+      mockFirstGroupFailure();
+      const logged: unknown[] = [];
+      const logSpy = jest.spyOn(console, 'log').mockImplementation((value: unknown) => {
+        logged.push(value);
+      });
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, Export: { FailureMode: 'CONTINUE' } },
+      });
+      logSpy.mockRestore();
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 3 log group(s): group-a');
+      expect(exportedLogGroupNames()).toEqual(['group-a', 'group-a', 'group-b', 'group-c']);
+      expect(logged).toContainEqual({ exportedCount: 2, functionName: 'unknown' });
+    });
+
+    it('returns FAILED without exporting when FailureMode is unknown', async () => {
+      mockCompletedExport(['group-a']);
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, Export: { FailureMode: 'IGNORE' } },
+      });
+
+      expect(getFailedErrorMessage(result)).toBe('Params.Export.FailureMode must be one of FAIL_FAST, CONTINUE.');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(0);
     });
   });
 

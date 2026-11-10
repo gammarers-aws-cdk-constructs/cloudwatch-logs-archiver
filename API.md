@@ -1131,7 +1131,7 @@ const cloudWatchLogsArchiverProps: CloudWatchLogsArchiverProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window and S3 key prefix. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window, S3 key prefix, and failure handling. |
 
 ---
 
@@ -1170,12 +1170,12 @@ public readonly logExport: LogExportOptions;
 ```
 
 - *Type:* <a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a>
-- *Default:* previous UTC day, one day, default prefix
+- *Default:* previous UTC day, one day, default prefix, FAIL_FAST
 
-Export window and S3 key prefix.
+Export window, S3 key prefix, and failure handling.
 
 Omit to export the previous UTC day under
-`{logGroup}/{yyyy}/{mm}/{dd}/`.
+`{logGroup}/{yyyy}/{mm}/{dd}/` and stop at the first failed log group.
 
 ---
 
@@ -1199,7 +1199,7 @@ const cloudWatchLogsArchiveStackProps: CloudWatchLogsArchiveStackProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window and S3 key prefix. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window, S3 key prefix, and failure handling. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.analyticsReporting">analyticsReporting</a></code> | <code>boolean</code> | Include runtime versioning information in this Stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.crossRegionReferences">crossRegionReferences</a></code> | <code>boolean</code> | Enable this flag to allow native cross region stack references. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.description">description</a></code> | <code>string</code> | A description of the stack. |
@@ -1250,12 +1250,12 @@ public readonly logExport: LogExportOptions;
 ```
 
 - *Type:* <a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a>
-- *Default:* previous UTC day, one day, default prefix
+- *Default:* previous UTC day, one day, default prefix, FAIL_FAST
 
-Export window and S3 key prefix.
+Export window, S3 key prefix, and failure handling.
 
 Omit to export the previous UTC day under
-`{logGroup}/{yyyy}/{mm}/{dd}/`.
+`{logGroup}/{yyyy}/{mm}/{dd}/` and stop at the first failed log group.
 
 ---
 
@@ -1578,9 +1578,10 @@ Specifying a topic also enables failure-alarm creation.
 
 ### LogExportOptions <a name="LogExportOptions" id="cloudwatch-logs-archiver.LogExportOptions"></a>
 
-UTC calendar-day window and S3 key prefix for each export task.
+UTC calendar-day window, S3 key prefix, and failure handling for each export task.
 
-Omitted properties keep yesterday, a one-day span, and `{logGroup}/{yyyy}/{mm}/{dd}/`.
+Omitted properties keep yesterday, a one-day span, `{logGroup}/{yyyy}/{mm}/{dd}/`,
+and {@link ExportFailureMode.FAIL_FAST}.
 Each day is a separate CreateExportTask, oldest day first.
 On the daily schedule, a span above one day exports overlapping days again.
 CloudWatch Logs stores each task under its own task id, so those objects accumulate in the bucket.
@@ -1599,6 +1600,7 @@ const logExportOptions: LogExportOptions = { ... }
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.destinationPrefixTemplate">destinationPrefixTemplate</a></code> | <code>string</code> | S3 key prefix passed to CreateExportTask. |
 | <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.endOffsetDays">endOffsetDays</a></code> | <code>number</code> | UTC calendar days before today that the window ends on. |
+| <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.failureMode">failureMode</a></code> | <code><a href="#cloudwatch-logs-archiver.ExportFailureMode">ExportFailureMode</a></code> | Whether a failed log group stops the run or the remaining log groups are still exported. |
 | <code><a href="#cloudwatch-logs-archiver.LogExportOptions.property.spanDays">spanDays</a></code> | <code>number</code> | Number of UTC calendar days to export, ending on the day selected by `endOffsetDays`. |
 
 ---
@@ -1634,6 +1636,19 @@ public readonly endOffsetDays: number;
 UTC calendar days before today that the window ends on.
 
 `1` ends the window on yesterday.
+
+---
+
+##### `failureMode`<sup>Optional</sup> <a name="failureMode" id="cloudwatch-logs-archiver.LogExportOptions.property.failureMode"></a>
+
+```typescript
+public readonly failureMode: ExportFailureMode;
+```
+
+- *Type:* <a href="#cloudwatch-logs-archiver.ExportFailureMode">ExportFailureMode</a>
+- *Default:* ExportFailureMode.FAIL_FAST
+
+Whether a failed log group stops the run or the remaining log groups are still exported.
 
 ---
 
@@ -1700,4 +1715,36 @@ Tag values matched by the scheduler target query.
 ---
 
 
+
+## Enums <a name="Enums" id="Enums"></a>
+
+### ExportFailureMode <a name="ExportFailureMode" id="cloudwatch-logs-archiver.ExportFailureMode"></a>
+
+What a daily run does when a log group export fails.
+
+Either way the run ends with a Lambda error that names the failed log groups.
+
+#### Members <a name="Members" id="Members"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cloudwatch-logs-archiver.ExportFailureMode.FAIL_FAST">FAIL_FAST</a></code> | Stop at the first failed log group. |
+| <code><a href="#cloudwatch-logs-archiver.ExportFailureMode.CONTINUE">CONTINUE</a></code> | Export every remaining log group, then fail the run. |
+
+---
+
+##### `FAIL_FAST` <a name="FAIL_FAST" id="cloudwatch-logs-archiver.ExportFailureMode.FAIL_FAST"></a>
+
+Stop at the first failed log group.
+
+Later log groups are not exported in that run.
+
+---
+
+
+##### `CONTINUE` <a name="CONTINUE" id="cloudwatch-logs-archiver.ExportFailureMode.CONTINUE"></a>
+
+Export every remaining log group, then fail the run.
+
+---
 
