@@ -10,7 +10,7 @@ const project = new ProjenCdkConstructLibrary({
   keywords: ['cdk', 'aws', 'cloudwatch', 'logs', 'archive'],
   deps: [
     'lambda-failure-detector@^0.2.3',
-    's3-secure-bucket@^0.4.0',
+    's3-secure-bucket@^0.7.3',
   ],
   devDeps: [
     '@gammarers/projen-projects@^0.5.7',
