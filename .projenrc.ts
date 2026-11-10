@@ -13,7 +13,7 @@ const project = new ProjenCdkConstructLibrary({
     's3-secure-bucket@^0.7.3',
   ],
   devDeps: [
-    '@gammarers/projen-projects@^0.5.7',
+    '@gammarers/projen-projects@^0.8.0',
     '@aws/durable-execution-sdk-js@^1.1.7',
     '@aws-sdk/client-cloudwatch-logs@^3.1063.0',
     '@aws-sdk/client-resource-groups-tagging-api@^3.1063.0',
