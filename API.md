@@ -8,10 +8,10 @@ CDK construct that sets up archiving of CloudWatch Logs to S3.
 
 Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
 that invokes the function daily to export tagged log groups to the bucket.
-By default each run exports the previous UTC calendar day.
-{@link LogExportOptions} can change that window and the S3 key prefix.
-Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
-failure or insufficient export count.
+By default each run exports the previous UTC calendar day and stops at the first failed log group.
+{@link LogExportOptions} can change that window, the S3 key prefix, and whether later groups are still exported.
+Optional failure alarms cover Lambda errors and throttles, the export-failure log, Scheduler delivery failures,
+and insufficient ExportedCount. Pass an existing SNS topic to receive notifications.
 
 #### Initializers <a name="Initializers" id="cloudwatch-logs-archiver.CloudWatchLogsArchiver.Initializer"></a>
 

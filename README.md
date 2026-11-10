@@ -29,9 +29,21 @@ An AWS CDK construct that archives CloudWatch Logs to S3 every day. Log groups a
 3. **Export** – For each log group (one at a time), it calls `CreateExportTask` once per UTC day in the window (default: the previous UTC calendar day, oldest day first) and waits on `DescribeExportTasks` until completion.
 4. **Retries** – `LimitExceededException` triggers a Durable wait and another create attempt; a `FAILED` task status is retried once.
 5. **Partial failure** – A log group fails when its export task is still `FAILED` after that retry. With `ExportFailureMode.FAIL_FAST` (default) the run stops there, and later log groups are not exported until the next run. With `ExportFailureMode.CONTINUE` the remaining log groups are still exported.
-6. **Notify on failure** – If any export fails, the Lambda throws. The error message lists up to ten failed log group names and, after a `FAIL_FAST` stop, how many log groups were not attempted. The structured `ERROR` log lists every failed log group in `failedLogGroups`. `ExportedCount` counts only successful log groups. When failure alarms are enabled (`failureAlarm.enabled` or `failureAlarm.notificationTopic`), CloudWatch Alarms fire on Lambda errors and throttles, that export-failure log, Scheduler delivery failures, and insufficient `ExportedCount`. Notifications are sent only when you pass an existing SNS topic.
+6. **Notify on failure** – If any export fails, the Lambda throws. The error message lists up to ten failed log group names and, after a `FAIL_FAST` stop, how many log groups were not attempted. The structured `ERROR` log lists every failed log group in `failedLogGroups`. `ExportedCount` counts only successful log groups. When failure alarms are enabled (`failureAlarm.enabled` or `failureAlarm.notificationTopic`), CloudWatch Alarms fire on Lambda errors and throttles, that export-failure log, Scheduler delivery failures, and insufficient `ExportedCount`. Notifications are sent only when you pass an existing SNS topic. A successful run does not send a notification.
 
-Tag the log groups you want to include (e.g. `DailyLogExport` = `Yes`); only those groups are archived.
+Log groups that do not match `targetResource` are not exported and do not raise a failure. A run that matches zero groups succeeds and emits `ExportedCount` 0. With failure alarms enabled, that 0 is below the default `minExportedCount` of 1, so the `ExportedCount` alarm fires.
+
+Waits and limits below are not configurable via props today.
+
+| What | Value |
+|------|--------|
+| DescribeExportTasks interval while `RUNNING` | 10 seconds |
+| DescribeExportTasks interval while `PENDING` or unknown | 3 seconds |
+| Wait after `LimitExceededException` | 30 seconds |
+| Retry after a `FAILED` task | once, after 3 seconds |
+| Lambda `timeout` | 15 minutes |
+| Durable `executionTimeout` | 2 hours |
+| Durable `retentionPeriod` | 1 day |
 
 ## Installation
 
@@ -55,7 +67,37 @@ pnpm add cloudwatch-logs-archiver
 
 ## Usage
 
-Use the construct inside your stack and pass the tag key and values used to select log groups. Only log groups that have this tag (with one of the given values) will be archived.
+### Minimal deployable app
+
+Use `CloudWatchLogsArchiveStack` when you want a dedicated stack you can deploy as-is.
+
+```typescript
+import { App } from 'aws-cdk-lib';
+import { CloudWatchLogsArchiveStack } from 'cloudwatch-logs-archiver';
+
+const app = new App();
+
+new CloudWatchLogsArchiveStack(app, 'CloudWatchLogsArchiveStack', {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+  targetResource: {
+    tagKey: 'DailyLogExport',
+    tagValues: ['Yes'],
+  },
+});
+
+app.synth();
+```
+
+Deploy checklist:
+
+1. Install this package and peers (`aws-cdk-lib`, `constructs`) in your CDK app.
+2. Tag the CloudWatch Log groups to archive (for example `DailyLogExport` = `Yes`) before the first schedule run.
+3. From the CDK app: `npx cdk deploy CloudWatchLogsArchiveStack`
+
+To add the archiver to an existing stack, use the construct and pass the tag key and values. Only log groups that have this tag (with one of the given values) are archived.
 
 ```typescript
 import { CloudWatchLogsArchiver } from 'cloudwatch-logs-archiver';
@@ -120,21 +162,6 @@ new CloudWatchLogsArchiver(this, 'CloudWatchLogsArchiver', {
   },
 });
 ```
-
-Alternatively, use the dedicated stack that contains the construct:
-
-```typescript
-import { CloudWatchLogsArchiveStack } from 'cloudwatch-logs-archiver';
-
-new CloudWatchLogsArchiveStack(app, 'CloudWatchLogsArchiveStack', {
-  targetResource: {
-    tagKey: 'DailyLogExport',
-    tagValues: ['Yes'],
-  },
-});
-```
-
-Ensure the CloudWatch Log groups you want to archive are tagged accordingly (e.g. `DailyLogExport` = `Yes`).
 
 For one-time or ad-hoc exports (for example a historical date range), see [AWS CloudWatch Logs Exporter](https://github.com/gammarers/aws-cloud-watch-logs-exporter). It can produce the same S3 key layout.
 
@@ -202,7 +229,14 @@ See [API.md](API.md).
 ## Notes
 
 - **Partial failure** – One failed log group always makes the run fail, so the Lambda `Errors` alarm fires in both failure modes. With `FAIL_FAST`, the log groups after the failure are not exported that day, and the next daily run exports only its own window. Re-export the missed days with `spanDays` or an ad-hoc export. `CONTINUE` avoids this but keeps a run with a broken log group going until every group is tried.
-- **Lambda log group** – The function log group keeps logs for 90 days. A failed first create deletes it with the rollback. After a successful create, stack deletion and replacement retain the log group.
+- **Repeated exports** – `spanDays` above 1 runs again on the next daily schedule, so overlapping days are exported again. Each `CreateExportTask` gets a new task id, and those objects stay in the bucket.
+- **Permissions** – The Lambda role can call `tag:GetResources`, `logs:CreateExportTask`, and `logs:DescribeExportTasks`, and it can `s3:GetBucketAcl` and `s3:PutObject` on the archive bucket. It does not receive permission to read or delete the exported objects.
+
+## Troubleshooting
+
+- **Where to look** – The construct creates a Lambda log group with 90-day retention. A failed first create deletes it with the rollback. After a successful create, stack deletion and replacement retain the log group. Export failures are an `ERROR` log whose message starts with `Log archiver completed with export failures` and includes `failedLogGroups`.
+- **Nothing is exported** – Confirm the log groups have `targetResource.tagKey` set to one of `tagValues`. Groups that do not match are skipped. A run with no matches still succeeds and logs `ExportedCount` 0.
+- **No notification** – Alarms are not created unless `failureAlarm.enabled` is true or `failureAlarm.notificationTopic` is set. Alarms without a topic do not publish to SNS. A successful run does not notify.
 
 ## License
 
