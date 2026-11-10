@@ -42,7 +42,8 @@
     "@aws-sdk/client-cloudwatch-logs": "^3.1063.0",
     "@aws-sdk/client-resource-groups-tagging-api": "^3.1063.0",
     "@aws/durable-execution-sdk-js": "^1.1.7",
-    "@gammarers/projen-projects": "^0.5.7",
+    "@gammarers/projen-projects": "^0.8.0",
+    "@smithy/node-http-handler": "^4.4.0",
     "@stylistic/eslint-plugin": "^2",
     "@types/aws-lambda": "^8.10.162",
     "@types/jest": "^30.0.0",
@@ -66,7 +67,7 @@
     "jsii-pacmak": "^1.142.0",
     "jsii-rosetta": "6.0.x",
     "projen": "^0.104.27",
-    "strict-env-resolver": "^0.7.3",
+    "strict-env-resolver": "^0.8.4",
     "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
     "typescript": "6.0.x"
@@ -76,7 +77,8 @@
     "constructs": "^10.5.1"
   },
   "dependencies": {
-    "s3-secure-bucket": "^0.4.0"
+    "lambda-failure-detector": "^0.2.3",
+    "s3-secure-bucket": "^0.7.3"
   },
   "keywords": [
     "archive",
@@ -103,6 +105,14 @@
   "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
+    "coverageThreshold": {
+      "global": {
+        "branches": 95,
+        "functions": 90,
+        "lines": 100,
+        "statements": 100
+      }
+    },
     "testMatch": [
       "<rootDir>/@(src|test)/**/*(*.)@(spec|test).ts?(x)",
       "<rootDir>/@(src|test)/**/__tests__/**/*.ts?(x)",

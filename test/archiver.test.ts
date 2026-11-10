@@ -1,7 +1,12 @@
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Topic } from 'aws-cdk-lib/aws-sns';
-import { CloudWatchLogsArchiveStack, CloudWatchLogsArchiver } from '../src';
+import {
+  CloudWatchLogsArchiveStack,
+  CloudWatchLogsArchiver,
+  ExportFailureMode,
+  type LogExportOptions,
+} from '../src';
 
 describe('CloudWatchLogsArchiveStack Testing', () => {
   const app = new App();
@@ -145,6 +150,16 @@ describe('CloudWatchLogsArchiveStack Testing', () => {
       });
     });
 
+    it('retains the Lambda log group after a successful create', () => {
+      template.hasResource('AWS::Logs::LogGroup', {
+        DeletionPolicy: 'RetainExceptOnCreate',
+        UpdateReplacePolicy: 'Retain',
+        Properties: Match.objectLike({
+          RetentionInDays: 90,
+        }),
+      });
+    });
+
     it('should have lambda alias for scheduler target', () => {
       template.hasResourceProperties('AWS::Lambda::Alias', {
         Name: 'live',
@@ -248,13 +263,25 @@ describe('CloudWatchLogsArchiveStack with failure alarms enabled', () => {
     template.resourceCountIs('AWS::SNS::TopicPolicy', 0);
   });
 
-  it('should create four operational alarms without SNS actions', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+  it('should create Lambda, scheduler, and export alarms without SNS actions', () => {
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 6);
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      AlarmDescription: 'CloudWatch Logs Archiver Lambda reported Errors >= 1.',
       Namespace: 'AWS/Lambda',
       MetricName: 'Errors',
       AlarmActions: Match.absent(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'AWS/Lambda',
+      MetricName: 'Throttles',
+      AlarmActions: Match.absent(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'CloudWatchLogsArchiver',
+      MetricName: 'ExportFailed',
+      AlarmActions: Match.absent(),
+    });
+    template.hasResourceProperties('AWS::Logs::MetricFilter', {
+      FilterPattern: '"Log archiver completed with export failures"',
     });
   });
 
@@ -322,7 +349,7 @@ describe('CloudWatchLogsArchiver with failure alarm notification topic', () => {
         { Ref: Match.stringLikeRegexp('ExistingAlarmTopic.*') },
       ]),
     });
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 6);
   });
 });
 
@@ -336,11 +363,7 @@ describe('CloudWatchLogsArchiver logExport', () => {
     tagValues: ['Yes'],
   };
 
-  const synthesize = (logExport: {
-    endOffsetDays?: number;
-    spanDays?: number;
-    destinationPrefixTemplate?: string;
-  } | undefined): Template => {
+  const synthesize = (logExport: LogExportOptions | undefined): Template => {
     const app = new App();
     const stack = new Stack(app, 'LogExportStack', { env });
     new CloudWatchLogsArchiver(stack, 'CloudWatchLogsArchiver', {
@@ -366,6 +389,18 @@ describe('CloudWatchLogsArchiver logExport', () => {
     template.hasResourceProperties('AWS::Scheduler::Schedule', {
       Target: Match.objectLike({
         Input: '{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"DestinationPrefixTemplate":"{yyyy}/{mm}/{dd}/{logGroup}/"}}}',
+      }),
+    });
+  });
+
+  it.each([
+    { failureMode: ExportFailureMode.FAIL_FAST, expected: 'FAIL_FAST' },
+    { failureMode: ExportFailureMode.CONTINUE, expected: 'CONTINUE' },
+  ])('puts FailureMode $expected on the schedule input', ({ failureMode, expected }) => {
+    const template = synthesize({ failureMode });
+    template.hasResourceProperties('AWS::Scheduler::Schedule', {
+      Target: Match.objectLike({
+        Input: `{"Params":{"TagKey":"DailyLogExport","TagValues":["Yes"],"Export":{"FailureMode":"${expected}"}}}`,
       }),
     });
   });

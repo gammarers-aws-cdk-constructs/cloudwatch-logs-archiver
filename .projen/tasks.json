@@ -431,6 +431,7 @@
             "@aws-sdk/client-resource-groups-tagging-api",
             "@aws/durable-execution-sdk-js",
             "@gammarers/projen-projects",
+            "@smithy/node-http-handler",
             "@stylistic/eslint-plugin",
             "@types/aws-lambda",
             "@types/jest",
@@ -458,6 +459,7 @@
             "typescript",
             "aws-cdk-lib",
             "constructs",
+            "lambda-failure-detector",
             "s3-secure-bucket"
           ]
         },

@@ -11,9 +11,15 @@ import {
   GetResourcesCommand,
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
+import { EXPORT_FAILURE_LOG_MESSAGE } from '../settings/consts';
 import { buildDestinationPrefix } from './core/destination-prefix';
-import { getExportBatchFailureMessage, hasExportBatchFailure } from './core/export-batch-failure';
+import {
+  getExportBatchFailureMessage,
+  hasExportBatchFailure,
+  toExportCompletionConfig,
+} from './core/export-batch-failure';
 import { ExportFailureRetry, shouldRetryFailedExport } from './core/export-failure-retry';
 import {
   EXPORT_TASK_STATUS_PENDING,
@@ -39,8 +45,8 @@ interface ScheduleEvent {
     /** Tag values to match; groups with any of these values are exported. */
     TagValues: string[];
     /**
-     * Optional export window and prefix. Omitted fields use the Lambda defaults
-     * (previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`).
+     * Optional export window, prefix, and failure mode. Omitted fields use the Lambda defaults
+     * (previous UTC day, one day, `{logGroup}/{yyyy}/{mm}/{dd}/`, `FAIL_FAST`).
      */
     Export?: unknown;
   };
@@ -68,6 +74,39 @@ const getLogGroupNameFromArn = (arn: string): string => {
   const parts = arn.split(':');
   return parts[6] ?? arn;
 };
+
+/** Dimension value when the Lambda runtime did not set a function name. */
+const UNKNOWN_LAMBDA_FUNCTION_NAME = 'unknown';
+
+/**
+ * Reads the Lambda function name. A missing or blank value becomes {@link UNKNOWN_LAMBDA_FUNCTION_NAME}.
+ */
+const resolveLambdaFunctionName = (): string => StrictEnvResolver.resolve(
+  'AWS_LAMBDA_FUNCTION_NAME',
+  StrictEnvType.String,
+  { default: UNKNOWN_LAMBDA_FUNCTION_NAME, trim: true },
+);
+
+/** Total tries per SDK send, including the first. Matches the SDK default. */
+const AWS_SDK_MAX_ATTEMPTS = 3;
+
+/** TCP connect limit for one SDK HTTP call. */
+const AWS_SDK_CONNECTION_TIMEOUT_MS = 5_000;
+
+/** Response limit for one SDK HTTP call, before the SDK retries. */
+const AWS_SDK_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * SDK retry and per-request timeouts. The region comes from the Lambda environment.
+ * Overall export waiting stays on durable wait, not on these HTTP limits.
+ */
+const createAwsClientConfig = () => ({
+  maxAttempts: AWS_SDK_MAX_ATTEMPTS,
+  requestHandler: new NodeHttpHandler({
+    connectionTimeout: AWS_SDK_CONNECTION_TIMEOUT_MS,
+    requestTimeout: AWS_SDK_REQUEST_TIMEOUT_MS,
+  }),
+});
 
 /** Seconds to wait between status checks when the export task is RUNNING. */
 const RUNNING_WAIT_SECONDS = 10;
@@ -287,33 +326,36 @@ const exportLogGroupDays = async (
  * Durable Lambda handler for archiving CloudWatch Logs to S3.
  * Discovers log groups by tag via the Resource Groups Tagging API, then exports
  * the configured UTC window for each group to the configured S3 bucket.
+ * With `FailureMode` `FAIL_FAST` (default) the run stops at the first failed log group;
+ * with `CONTINUE` it exports every remaining group before failing.
  *
  * @param event - Scheduler input with `Params.TagKey`, `Params.TagValues`, and optional `Params.Export`.
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
  * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
- * @throws Error if `Params` are missing or invalid.
+ * @throws Error if `Params`, `Params.TagKey`, or `Params.TagValues` is missing or empty.
  * @throws CloudWatchLogsArchiverValidateError if `Params.Export` is present and invalid.
- * @throws Error if one or more log group exports fail (`failureCount` > 0).
+ * @throws Error if one or more log group exports fail. The message names the failed log groups
+ *   and counts log groups not attempted after a `FAIL_FAST` stop.
  */
 export const handler = withDurableExecution(async (event: ScheduleEvent, context: DurableContext): Promise<{ ExportedCount: number }> => {
   context.logger.info('Log archiver started', { hasTagKey: Boolean(event.Params?.TagKey) });
 
   const bucketName = StrictEnvResolver.resolve('BUCKET_NAME', StrictEnvType.String);
 
-  const cwLogs = new CloudWatchLogsClient({});
+  const cwLogs = new CloudWatchLogsClient(createAwsClientConfig());
   let logGroupNames: string[];
 
   const params = event.Params;
   if (!params?.TagKey || !params?.TagValues) {
-    throw new Error('Invalid event: Params.TagKey, Params.TagValues, Params.Mode are required.');
+    throw new Error('Invalid event: Params.TagKey and Params.TagValues are required.');
   }
 
   const exportSettings = resolveExportSettings(params.Export);
   const windows = listUtcExportWindows(new Date(), exportSettings);
 
   logGroupNames = await context.step('get-resources', async () => {
-    const taggingClient = new ResourceGroupsTaggingAPIClient({});
+    const taggingClient = new ResourceGroupsTaggingAPIClient(createAwsClientConfig());
     const arns: string[] = [];
     let paginationToken: string | undefined;
     do {
@@ -347,18 +389,30 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
       );
       return { logGroupName };
     },
-    { maxConcurrency: 1 },
+    {
+      maxConcurrency: 1,
+      completionConfig: toExportCompletionConfig(exportSettings.failureMode),
+    },
   );
 
   const exportedCount = mapResult.successCount;
-  emitExportedCountMetricLog(exportedCount);
+  emitExportedCountMetricLog(exportedCount, resolveLambdaFunctionName());
 
   if (hasExportBatchFailure(mapResult.failureCount)) {
-    context.logger.error('Log archiver completed with export failures', {
+    const failedLogGroups = mapResult.failed().map((item) => logGroupNames[item.index] ?? `index ${item.index}`);
+    const notAttemptedCount = logGroupNames.length - mapResult.successCount - mapResult.failureCount;
+    context.logger.error(EXPORT_FAILURE_LOG_MESSAGE, {
       exportedCount,
       failureCount: mapResult.failureCount,
+      notAttemptedCount,
+      failureMode: exportSettings.failureMode,
+      failedLogGroups,
     });
-    throw new Error(getExportBatchFailureMessage(mapResult.failureCount, mapResult.totalCount));
+    throw new Error(getExportBatchFailureMessage({
+      failedLogGroups,
+      totalCount: logGroupNames.length,
+      notAttemptedCount,
+    }));
   }
 
   context.logger.info('Log archiver completed', { exportedCount });

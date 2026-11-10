@@ -1,3 +1,4 @@
+import * as exportWindow from '../../src/funcs/core/export-window';
 import { getPreviousUtcDayWindow } from '../../src/funcs/core/previous-utc-day-window';
 
 describe('getPreviousUtcDayWindow', () => {
@@ -65,5 +66,14 @@ describe('getPreviousUtcDayWindow', () => {
     expect(window.year).toBe(expected.year);
     expect(window.month).toBe(expected.month);
     expect(window.day).toBe(expected.day);
+  });
+
+  it('throws when the default window is empty', () => {
+    const spy = jest.spyOn(exportWindow, 'listUtcExportWindows').mockReturnValue([]);
+
+    expect(() => getPreviousUtcDayWindow(new Date('2026-07-17T13:01:00.000Z')))
+      .toThrow('Expected the previous UTC day window.');
+
+    spy.mockRestore();
   });
 });

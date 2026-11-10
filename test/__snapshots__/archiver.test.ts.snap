@@ -116,12 +116,12 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
       "Type": "AWS::IAM::Policy",
     },
     "CloudWatchLogsArchiverLambdaFunctionLogGroupD90C9B77": {
-      "DeletionPolicy": "Delete",
+      "DeletionPolicy": "RetainExceptOnCreate",
       "Properties": {
         "RetentionInDays": 90,
       },
       "Type": "AWS::Logs::LogGroup",
-      "UpdateReplacePolicy": "Delete",
+      "UpdateReplacePolicy": "Retain",
     },
     "CloudWatchLogsArchiverLogArchiveBucketB1535338": {
       "DeletionPolicy": "Retain",
@@ -275,7 +275,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         ],
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-east-1",
-          "S3Key": "f0f04255baf9190c82289cca2196f3b7a427e4fa10b49e0fae27f85a5417af1c.zip",
+          "S3Key": "e4831b85c70d87e3f23909561b99ca688799ad84cc4aa3bfccbabcb6992bc89c.zip",
         },
         "Description": "A function to archive logs s3 bucket from CloudWatch Logs.",
         "DurableConfig": {
@@ -318,7 +318,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
         },
         "FunctionVersion": {
           "Fn::GetAtt": [
-            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA7a279b4d154bdf5396bda1214e6dadcf",
+            "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAec75a7c824dcf851a6366f012059ee0f",
             "Version",
           ],
         },
@@ -326,7 +326,7 @@ exports[`CloudWatchLogsArchiveStack Testing Snapshot Testing should match snapsh
       },
       "Type": "AWS::Lambda::Alias",
     },
-    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BA7a279b4d154bdf5396bda1214e6dadcf": {
+    "CloudWatchLogsArchiverLogArchiveFunctionCurrentVersion15FB28BAec75a7c824dcf851a6366f012059ee0f": {
       "Metadata": {
         "aws:cdk:do-not-refactor": true,
       },

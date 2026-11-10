@@ -4,12 +4,15 @@ import {
   DEFAULT_DESTINATION_PREFIX_TEMPLATE,
   DEFAULT_EXPORT_END_OFFSET_DAYS,
   DEFAULT_EXPORT_SPAN_DAYS,
+  EXPORT_FAILURE_MODE_FAIL_FAST,
+  EXPORT_FAILURE_MODES,
+  type ExportFailureModeValue,
   MAX_EXPORT_SPAN_DAYS,
   MIN_EXPORT_END_OFFSET_DAYS,
   MIN_EXPORT_SPAN_DAYS,
 } from '../../settings/consts';
 
-/** Export window and prefix after defaults are applied. */
+/** Export window, prefix, and failure handling after defaults are applied. */
 export interface ResolvedExportSettings {
   /** UTC calendar days before today that the window ends on. */
   readonly endOffsetDays: number;
@@ -17,17 +20,24 @@ export interface ResolvedExportSettings {
   readonly spanDays: number;
   /** Destination prefix template passed to each CreateExportTask. */
   readonly destinationPrefixTemplate: string;
+  /** Whether the run stops at the first failed log group or exports the rest. */
+  readonly failureMode: ExportFailureModeValue;
 }
 
 const EXPORT_FIELD_END_OFFSET_DAYS = 'EndOffsetDays';
 const EXPORT_FIELD_SPAN_DAYS = 'SpanDays';
 const EXPORT_FIELD_DESTINATION_PREFIX_TEMPLATE = 'DestinationPrefixTemplate';
+const EXPORT_FIELD_FAILURE_MODE = 'FailureMode';
 
 const KNOWN_EXPORT_FIELDS = new Set<string>([
   EXPORT_FIELD_END_OFFSET_DAYS,
   EXPORT_FIELD_SPAN_DAYS,
   EXPORT_FIELD_DESTINATION_PREFIX_TEMPLATE,
+  EXPORT_FIELD_FAILURE_MODE,
 ]);
+
+const isExportFailureMode = (value: unknown): value is ExportFailureModeValue =>
+  EXPORT_FAILURE_MODES.some((mode) => mode === value);
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -84,8 +94,28 @@ const readDestinationPrefixTemplate = (value: unknown): string | undefined => {
 };
 
 /**
+ * Reads the optional failure mode.
+ *
+ * @param value - Raw `FailureMode` field.
+ * @returns The mode, or `undefined` when omitted.
+ * @throws CloudWatchLogsArchiverValidateError when the field is present and not a known mode.
+ */
+const readFailureMode = (value: unknown): ExportFailureModeValue | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isExportFailureMode(value)) {
+    return value;
+  }
+  throw new CloudWatchLogsArchiverValidateError(
+    `Params.Export.FailureMode must be one of ${EXPORT_FAILURE_MODES.join(', ')}.`,
+  );
+};
+
+/**
  * Applies export defaults and checks a scheduler `Params.Export` object.
- * Omitted `Export` keeps the previous UTC day, a one-day span, and the default prefix template.
+ * Omitted `Export` keeps the previous UTC day, a one-day span, the default prefix template,
+ * and `FAIL_FAST`.
  *
  * @param raw - `Params.Export` from the scheduler event, or `undefined` when omitted.
  * @returns Settings the handler can pass to the window and prefix builders.
@@ -97,6 +127,7 @@ export const resolveExportSettings = (raw: unknown): ResolvedExportSettings => {
       endOffsetDays: DEFAULT_EXPORT_END_OFFSET_DAYS,
       spanDays: DEFAULT_EXPORT_SPAN_DAYS,
       destinationPrefixTemplate: DEFAULT_DESTINATION_PREFIX_TEMPLATE,
+      failureMode: EXPORT_FAILURE_MODE_FAIL_FAST,
     };
   }
   if (!isPlainRecord(raw)) {
@@ -125,5 +156,6 @@ export const resolveExportSettings = (raw: unknown): ResolvedExportSettings => {
     ) ?? DEFAULT_EXPORT_SPAN_DAYS,
     destinationPrefixTemplate: readDestinationPrefixTemplate(raw[EXPORT_FIELD_DESTINATION_PREFIX_TEMPLATE])
       ?? DEFAULT_DESTINATION_PREFIX_TEMPLATE,
+    failureMode: readFailureMode(raw[EXPORT_FIELD_FAILURE_MODE]) ?? EXPORT_FAILURE_MODE_FAIL_FAST,
   };
 };

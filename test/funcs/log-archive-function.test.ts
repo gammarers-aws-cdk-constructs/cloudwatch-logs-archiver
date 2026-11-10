@@ -8,6 +8,7 @@ import {
   CloudWatchLogsClient,
   CreateExportTaskCommand,
   DescribeExportTasksCommand,
+  LimitExceededException,
 } from '@aws-sdk/client-cloudwatch-logs';
 import {
   GetResourcesCommand,
@@ -16,6 +17,7 @@ import {
 import { Context } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
 import { StrictEnvValidationError } from 'strict-env-resolver';
+import * as exportWindow from '../../src/funcs/core/export-window';
 import { handler } from '../../src/funcs/log-archive.lambda';
 
 /**
@@ -78,7 +80,7 @@ const createMockDurableClient = (): DurableExecutionClient => ({
   },
 });
 
-/** Durable Execution が受け取る形式でテスト用の invocation input を組み立てる */
+/** Builds the invocation input Durable Execution passes to the handler. */
 const createInvocationInput = (userEvent: LogArchiveScheduleEvent): DurableExecutionInvocationInputWithClient => {
   const base: DurableExecutionInvocationInput = {
     DurableExecutionArn: 'arn:aws:durable-execution:test',
@@ -278,7 +280,7 @@ describe('Lambda Function Handler testing', () => {
 
       const result = await invokeHandler(SCHEDULE_EVENT);
 
-      expect(getFailedErrorMessage(result)).toContain('Export failed for 1 of 1 log group(s)');
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 1 log group(s): example/log-group');
     });
 
     it('follows Resource Groups Tagging API pagination and exports every page', async () => {
@@ -307,6 +309,135 @@ describe('Lambda Function Handler testing', () => {
       expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName))
         .toEqual(['group-a', 'group-b']);
     });
+
+    it('retries CreateExportTask when LimitExceededException has no message', async () => {
+      mockCompletedExport(['example/log-group']);
+      const limitExceeded = new Error('');
+      limitExceeded.name = 'LimitExceededException';
+      cwLogsMock.on(CreateExportTaskCommand)
+        .rejectsOnce(limitExceeded)
+        .resolvesOnce({ taskId: 'cda45419-90ea-4db5-9833-aade86253e66' });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(2);
+    });
+
+    it('stops in the create step when CreateExportTask omits taskId', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand).resolves({});
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      // The local durable mock does not finish a step that throws.
+      expect(result.Status).toBe('PENDING');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(1);
+    });
+
+    it('stops in the create step when CreateExportTask throws a non-limit error', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand).rejects(new Error('access denied'));
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(result.Status).toBe('PENDING');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(1);
+    });
+
+    it('waits while the export task is RUNNING and then completes', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(DescribeExportTasksCommand)
+        .resolvesOnce({ exportTasks: [{ status: { code: 'RUNNING' } }] })
+        .resolvesOnce({ exportTasks: [{}] })
+        .resolvesOnce({ exportTasks: [{ status: { code: 'COMPLETED' } }] });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(DescribeExportTasksCommand)).toHaveLength(3);
+    });
+
+    it('returns FAILED when an export window is missing', async () => {
+      const spy = jest.spyOn(exportWindow, 'listUtcExportWindows').mockReturnValue([undefined as never]);
+      mockCompletedExport(['example/log-group']);
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+      spy.mockRestore();
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 1 log group(s): example/log-group');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(0);
+    });
+
+    it('waits and retries CreateExportTask after LimitExceededException', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand)
+        .rejectsOnce(new LimitExceededException({ message: 'Resource limit exceeded.', $metadata: {} }))
+        .resolvesOnce({ taskId: 'cda45419-90ea-4db5-9833-aade86253e66' });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(2);
+      expect(cwLogsMock.commandCalls(DescribeExportTasksCommand)).toHaveLength(1);
+    });
+
+  });
+
+  describe('Partial export failure (Params.Export.FailureMode)', () => {
+    /** group-a stays FAILED after its one retry; the other groups complete. */
+    const mockFirstGroupFailure = (): void => {
+      mockCompletedExport(['group-a', 'group-b', 'group-c']);
+      cwLogsMock.on(CreateExportTaskCommand, { logGroupName: 'group-a' }).resolves({ taskId: 'failed-task' });
+      cwLogsMock.on(DescribeExportTasksCommand, { taskId: 'failed-task' }).resolves({
+        exportTasks: [{ status: { code: 'FAILED' } }],
+      });
+    };
+
+    const exportedLogGroupNames = (): (string | undefined)[] =>
+      cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName);
+
+    it.each([
+      { name: 'FailureMode is omitted', exportInput: undefined },
+      { name: 'FailureMode is FAIL_FAST', exportInput: { FailureMode: 'FAIL_FAST' } },
+    ])('stops at the first failed log group when $name', async ({ exportInput }) => {
+      mockFirstGroupFailure();
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, ...(exportInput === undefined ? {} : { Export: exportInput }) },
+      });
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 3 log group(s); 2 not attempted: group-a');
+      expect(exportedLogGroupNames()).toEqual(['group-a', 'group-a']);
+    });
+
+    it('exports the remaining log groups and then fails when FailureMode is CONTINUE', async () => {
+      mockFirstGroupFailure();
+      const logged: unknown[] = [];
+      const logSpy = jest.spyOn(console, 'log').mockImplementation((value: unknown) => {
+        logged.push(value);
+      });
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, Export: { FailureMode: 'CONTINUE' } },
+      });
+      logSpy.mockRestore();
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 3 log group(s): group-a');
+      expect(exportedLogGroupNames()).toEqual(['group-a', 'group-a', 'group-b', 'group-c']);
+      expect(logged).toContainEqual({ exportedCount: 2, functionName: 'unknown' });
+    });
+
+    it('returns FAILED without exporting when FailureMode is unknown', async () => {
+      mockCompletedExport(['group-a']);
+
+      const result = await invokeHandler({
+        Params: { ...SCHEDULE_EVENT.Params, Export: { FailureMode: 'IGNORE' } },
+      });
+
+      expect(getFailedErrorMessage(result)).toBe('Params.Export.FailureMode must be one of FAIL_FAST, CONTINUE.');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(0);
+    });
   });
 
   describe('Environment variable validation', () => {
@@ -323,6 +454,36 @@ describe('Lambda Function Handler testing', () => {
         { key: 'BUCKET_NAME', message: 'Missing required environment variable: BUCKET_NAME', kind: 'missing' },
       ]);
       expect(errorMessage).toBe(validationError.message);
+    });
+
+    it.each([
+      { name: 'unset', functionName: undefined },
+      { name: 'blank', functionName: '   ' },
+    ])('logs functionName unknown when AWS_LAMBDA_FUNCTION_NAME is $name', async ({ functionName }) => {
+      const originalFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+      if (functionName === undefined) {
+        delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+      } else {
+        process.env.AWS_LAMBDA_FUNCTION_NAME = functionName;
+      }
+      mockCompletedExport(['example/log-group']);
+      const logged: unknown[] = [];
+      const logSpy = jest.spyOn(console, 'log').mockImplementation((value: unknown) => {
+        logged.push(value);
+      });
+
+      try {
+        const result = await invokeHandler(SCHEDULE_EVENT);
+        expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+        expect(logged).toContainEqual({ exportedCount: 1, functionName: 'unknown' });
+      } finally {
+        logSpy.mockRestore();
+        if (originalFunctionName === undefined) {
+          delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+          return;
+        }
+        process.env.AWS_LAMBDA_FUNCTION_NAME = originalFunctionName;
+      }
     });
   });
 
@@ -347,7 +508,9 @@ describe('Lambda Function Handler testing', () => {
     ])('should return FAILED when $name', async ({ payload }) => {
       const result = await invokeHandler(payload);
 
-      expect(getFailedErrorMessage(result)).toContain('Params.TagKey');
+      expect(getFailedErrorMessage(result)).toBe(
+        'Invalid event: Params.TagKey and Params.TagValues are required.',
+      );
     });
   });
 });

@@ -57,6 +57,21 @@ export const DESTINATION_PREFIX_CHARACTERS = '-./_#A-Za-z0-9';
 /** Maximum length of a CreateExportTask `destinationPrefix`. */
 export const MAX_DESTINATION_PREFIX_LENGTH = 512;
 
+/** `FailureMode` that stops the run at the first failed log group. Used when the field is omitted. */
+export const EXPORT_FAILURE_MODE_FAIL_FAST = 'FAIL_FAST';
+
+/** `FailureMode` that keeps exporting the remaining log groups after a failure. */
+export const EXPORT_FAILURE_MODE_CONTINUE = 'CONTINUE';
+
+/** `FailureMode` values the scheduler input may carry. */
+export const EXPORT_FAILURE_MODES = [
+  EXPORT_FAILURE_MODE_FAIL_FAST,
+  EXPORT_FAILURE_MODE_CONTINUE,
+] as const;
+
+/** One of {@link EXPORT_FAILURE_MODES}. */
+export type ExportFailureModeValue = typeof EXPORT_FAILURE_MODES[number];
+
 /**
  * CloudWatch metric namespace for archiver operational metrics.
  * The construct's metric filter and the Lambda log must use this same namespace.
@@ -80,3 +95,9 @@ export const EXPORTED_COUNT_LOG_FIELD = 'exportedCount';
  * Metric Filter path is `$.message.functionName`.
  */
 export const EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD = 'functionName';
+
+/**
+ * Durable logger message emitted when one or more log group exports fail.
+ * The construct's log metric filter matches this phrase.
+ */
+export const EXPORT_FAILURE_LOG_MESSAGE = 'Log archiver completed with export failures';

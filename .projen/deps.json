@@ -17,7 +17,12 @@
     },
     {
       "name": "@gammarers/projen-projects",
-      "version": "^0.5.7",
+      "version": "^0.8.0",
+      "type": "build"
+    },
+    {
+      "name": "@smithy/node-http-handler",
+      "version": "^4.4.0",
       "type": "build"
     },
     {
@@ -119,7 +124,7 @@
     },
     {
       "name": "strict-env-resolver",
-      "version": "^0.7.3",
+      "version": "^0.8.4",
       "type": "build"
     },
     {
@@ -146,8 +151,13 @@
       "type": "peer"
     },
     {
+      "name": "lambda-failure-detector",
+      "version": "^0.2.3",
+      "type": "runtime"
+    },
+    {
       "name": "s3-secure-bucket",
-      "version": "^0.4.0",
+      "version": "^0.7.3",
       "type": "runtime"
     }
   ],

@@ -7,6 +7,7 @@ import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as targets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
+import { LambdaFailureDetector, type LogFailureFilter } from 'lambda-failure-detector';
 import { S3SecureBucket, S3SecureBucketType } from 's3-secure-bucket';
 import { LogArchiveFunction } from './funcs/log-archive-function';
 import {
@@ -16,6 +17,9 @@ import {
   DESTINATION_PREFIX_MONTH_TOKEN,
   DESTINATION_PREFIX_TOKENS,
   DESTINATION_PREFIX_YEAR_TOKEN,
+  EXPORT_FAILURE_MODE_CONTINUE,
+  EXPORT_FAILURE_MODE_FAIL_FAST,
+  EXPORT_FAILURE_LOG_MESSAGE,
   EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
   EXPORTED_COUNT_LOG_FIELD,
   EXPORTED_COUNT_METRIC_NAME,
@@ -39,7 +43,8 @@ export interface TargetResource {
 
 /**
  * Failure-alarm and notification settings for {@link CloudWatchLogsArchiver}.
- * Creates CloudWatch Alarms for Scheduler/Lambda failures and insufficient ExportedCount.
+ * Creates CloudWatch Alarms for Lambda errors and throttles, the export-failure log,
+ * Scheduler delivery failures, and insufficient ExportedCount.
  * The construct never creates an SNS topic; pass {@link FailureAlarmOptions.notificationTopic}
  * to receive ALARM-state notifications.
  */
@@ -67,8 +72,20 @@ export interface FailureAlarmOptions {
 }
 
 /**
- * UTC calendar-day window and S3 key prefix for each export task.
- * Omitted properties keep yesterday, a one-day span, and `{logGroup}/{yyyy}/{mm}/{dd}/`.
+ * What a daily run does when a log group export fails.
+ * Either way the run ends with a Lambda error that names the failed log groups.
+ */
+export enum ExportFailureMode {
+  /** Stop at the first failed log group. Later log groups are not exported in that run. */
+  FAIL_FAST = 'FAIL_FAST',
+  /** Export every remaining log group, then fail the run. */
+  CONTINUE = 'CONTINUE',
+}
+
+/**
+ * UTC calendar-day window, S3 key prefix, and failure handling for each export task.
+ * Omitted properties keep yesterday, a one-day span, `{logGroup}/{yyyy}/{mm}/{dd}/`,
+ * and {@link ExportFailureMode.FAIL_FAST}.
  * Each day is a separate CreateExportTask, oldest day first.
  * On the daily schedule, a span above one day exports overlapping days again.
  * CloudWatch Logs stores each task under its own task id, so those objects accumulate in the bucket.
@@ -96,6 +113,11 @@ export interface LogExportOptions {
    * @default '{logGroup}/{yyyy}/{mm}/{dd}/'
    */
   readonly destinationPrefixTemplate?: string;
+  /**
+   * Whether a failed log group stops the run or the remaining log groups are still exported.
+   * @default ExportFailureMode.FAIL_FAST
+   */
+  readonly failureMode?: ExportFailureMode;
 }
 
 /**
@@ -105,22 +127,36 @@ export interface CloudWatchLogsArchiverProps {
   /** Tag filter to identify which log groups to archive daily. */
   readonly targetResource: TargetResource;
   /**
-   * Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+   * Failure alarms for Lambda errors and throttles, the export-failure log,
+   * Scheduler delivery failures, and insufficient ExportedCount.
    * Omit to skip alarm creation. Alarms are created when `enabled` is true or
    * {@link FailureAlarmOptions.notificationTopic} is set.
    * @default - failure alarms are not created
    */
   readonly failureAlarm?: FailureAlarmOptions;
   /**
-   * Export window and S3 key prefix. Omit to export the previous UTC day under
-   * `{logGroup}/{yyyy}/{mm}/{dd}/`.
-   * @default - previous UTC day, one day, default prefix
+   * Export window, S3 key prefix, and failure handling. Omit to export the previous UTC day under
+   * `{logGroup}/{yyyy}/{mm}/{dd}/` and stop at the first failed log group.
+   * @default - previous UTC day, one day, default prefix, FAIL_FAST
    */
   readonly logExport?: LogExportOptions;
 }
 
 /** Default minimum successful exports per daily run. */
 const DEFAULT_MIN_EXPORTED_COUNT = 1;
+
+/**
+ * Log failures this construct asks {@link LambdaFailureDetector} to alarm on.
+ * Platform Errors and Throttles are added by the detector itself.
+ */
+const ARCHIVER_LOG_FILTERS: LogFailureFilter[] = [
+  {
+    id: 'ExportFailed',
+    filterPattern: `"${EXPORT_FAILURE_LOG_MESSAGE}"`,
+    metricNamespace: EXPORTED_COUNT_METRIC_NAMESPACE,
+    metricName: 'ExportFailed',
+  },
+];
 
 /**
  * Options for {@link CloudWatchLogsArchiver.addFailureAlarm}.
@@ -157,7 +193,15 @@ interface ScheduleExportInput {
   readonly SpanDays?: number;
   /** Destination prefix template. */
   readonly DestinationPrefixTemplate?: string;
+  /** `FAIL_FAST` or `CONTINUE`. */
+  readonly FailureMode?: string;
 }
+
+/** Scheduler `FailureMode` value for each public {@link ExportFailureMode}. */
+const SCHEDULE_FAILURE_MODES: Record<ExportFailureMode, string> = {
+  [ExportFailureMode.FAIL_FAST]: EXPORT_FAILURE_MODE_FAIL_FAST,
+  [ExportFailureMode.CONTINUE]: EXPORT_FAILURE_MODE_CONTINUE,
+};
 
 const DESTINATION_PREFIX_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]+$`);
 const DESTINATION_PREFIX_LITERAL_PATTERN = new RegExp(`^[${DESTINATION_PREFIX_CHARACTERS}]*$`);
@@ -308,6 +352,9 @@ const toScheduleExportInput = (logExport: LogExportOptions | undefined): Schedul
     ...(logExport.destinationPrefixTemplate === undefined
       ? {}
       : { DestinationPrefixTemplate: logExport.destinationPrefixTemplate }),
+    ...(logExport.failureMode === undefined
+      ? {}
+      : { FailureMode: SCHEDULE_FAILURE_MODES[logExport.failureMode] }),
   };
   if (Object.keys(input).length === 0) {
     return undefined;
@@ -319,10 +366,10 @@ const toScheduleExportInput = (logExport: LogExportOptions | undefined): Schedul
  * CDK construct that sets up archiving of CloudWatch Logs to S3.
  * Creates an S3 bucket, a durable Lambda function, and an EventBridge Scheduler
  * that invokes the function daily to export tagged log groups to the bucket.
- * By default each run exports the previous UTC calendar day.
- * {@link LogExportOptions} can change that window and the S3 key prefix.
- * Optional failure CloudWatch Alarms can notify an existing SNS topic on Scheduler/Lambda
- * failure or insufficient export count.
+ * By default each run exports the previous UTC calendar day and stops at the first failed log group.
+ * {@link LogExportOptions} can change that window, the S3 key prefix, and whether later groups are still exported.
+ * Optional failure alarms cover Lambda errors and throttles, the export-failure log, Scheduler delivery failures,
+ * and insufficient ExportedCount. Pass an existing SNS topic to receive notifications.
  */
 export class CloudWatchLogsArchiver extends Construct {
   /**
@@ -343,10 +390,9 @@ export class CloudWatchLogsArchiver extends Construct {
 
     const lambdaLogGroup = new logs.LogGroup(this, 'LambdaFunctionLogGroup', {
       retention: logs.RetentionDays.THREE_MONTHS,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
-    // 👇 Create Lambda Function
     const logArchiveFunction = new LogArchiveFunction(this, 'LogArchiveFunction', {
       description: 'A function to archive logs s3 bucket from CloudWatch Logs.',
       architecture: lambda.Architecture.ARM_64,
@@ -477,26 +523,19 @@ export class CloudWatchLogsArchiver extends Construct {
   }
 
   /**
-   * Wires failure CloudWatch Alarms for Lambda errors, Scheduler delivery failures,
+   * Wires failure detection for the archive Lambda, Scheduler delivery failures,
    * and insufficient ExportedCount. Publishes to SNS when a topic is provided.
    */
   private addFailureAlarms(params: AddFailureAlarmsParams): void {
     const { lambdaFunction, lambdaLogGroup, minExportedCount, notificationTopic, scheduleGroup } = params;
 
-    this.addFailureAlarm(
-      'LambdaErrorsAlarm',
-      lambdaFunction.metricErrors({
-        period: Duration.minutes(5),
-        statistic: cloudwatch.Stats.SUM,
-      }),
-      {
-        alarmDescription: 'CloudWatch Logs Archiver Lambda reported Errors >= 1.',
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        notificationTopic,
-        threshold: 1,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      },
-    );
+    // Platform Errors and Throttles, plus the export-failure log, come from the detector.
+    new LambdaFailureDetector(this, 'FailureDetector', {
+      lambdaFunction,
+      logGroup: lambdaLogGroup,
+      alarmTopic: notificationTopic,
+      logFilters: ARCHIVER_LOG_FILTERS,
+    });
 
     this.addFailureAlarm(
       'SchedulerTargetErrorsAlarm',
