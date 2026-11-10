@@ -21,7 +21,7 @@ const project = new ProjenCdkConstructLibrary({
     '@types/aws-lambda@^8.10.162',
     'aws-sdk-client-mock@^3.1.0',
     'aws-sdk-client-mock-jest@^3.1.0',
-    'strict-env-resolver@^0.7.3',
+    'strict-env-resolver@^0.8.4',
   ],
 });
 project.addPackageIgnore('/.devcontainer');
