@@ -24,5 +24,4 @@ const project = new ProjenCdkConstructLibrary({
     'strict-env-resolver@^0.8.4',
   ],
 });
-project.addPackageIgnore('/.devcontainer');
 project.synth();
