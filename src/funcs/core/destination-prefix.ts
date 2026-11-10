@@ -88,29 +88,6 @@ export const assertDestinationPrefixTemplate = (template: string): void => {
 };
 
 /**
- * Substitutes one known token. Unknown tokens are left in place for the prefix check to reject.
- *
- * @param token - Matched token, including braces.
- * @param parts - Values available for substitution.
- * @returns Replacement text.
- */
-const replaceDestinationPrefixToken = (token: string, parts: DestinationPrefixParts): string => {
-  if (token === DESTINATION_PREFIX_LOG_GROUP_TOKEN) {
-    return sanitizeLogGroupName(parts.logGroupName);
-  }
-  if (token === DESTINATION_PREFIX_YEAR_TOKEN) {
-    return parts.year;
-  }
-  if (token === DESTINATION_PREFIX_MONTH_TOKEN) {
-    return parts.month;
-  }
-  if (token === DESTINATION_PREFIX_DAY_TOKEN) {
-    return parts.day;
-  }
-  return token;
-};
-
-/**
  * Renders a destination prefix for one log group and one UTC day.
  *
  * @param template - Prefix template. Defaults are applied by the caller; this function does not.
@@ -121,8 +98,12 @@ const replaceDestinationPrefixToken = (token: string, parts: DestinationPrefixPa
 export const buildDestinationPrefix = (template: string, parts: DestinationPrefixParts): string => {
   assertDestinationPrefixTemplate(template);
 
-  const prefix = template.replace(KNOWN_DESTINATION_PREFIX_TOKEN_PATTERN, (token) =>
-    replaceDestinationPrefixToken(token, parts));
+  // Date tokens are replaced before `{logGroup}`, so a sanitized name is not scanned again.
+  const prefix = template
+    .replaceAll(DESTINATION_PREFIX_YEAR_TOKEN, parts.year)
+    .replaceAll(DESTINATION_PREFIX_MONTH_TOKEN, parts.month)
+    .replaceAll(DESTINATION_PREFIX_DAY_TOKEN, parts.day)
+    .replaceAll(DESTINATION_PREFIX_LOG_GROUP_TOKEN, sanitizeLogGroupName(parts.logGroupName));
 
   if (prefix.length > MAX_DESTINATION_PREFIX_LENGTH || !DESTINATION_PREFIX_PATTERN.test(prefix)) {
     throw new CloudWatchLogsArchiverValidateError(

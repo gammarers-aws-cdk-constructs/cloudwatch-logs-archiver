@@ -17,6 +17,7 @@ import {
 import { Context } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
 import { StrictEnvValidationError } from 'strict-env-resolver';
+import * as exportWindow from '../../src/funcs/core/export-window';
 import { handler } from '../../src/funcs/log-archive.lambda';
 
 /**
@@ -307,6 +308,65 @@ describe('Lambda Function Handler testing', () => {
       expect(taggingMock.commandCalls(GetResourcesCommand)[1].args[0].input.PaginationToken).toBe('page-2');
       expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName))
         .toEqual(['group-a', 'group-b']);
+    });
+
+    it('retries CreateExportTask when LimitExceededException has no message', async () => {
+      mockCompletedExport(['example/log-group']);
+      const limitExceeded = new Error('');
+      limitExceeded.name = 'LimitExceededException';
+      cwLogsMock.on(CreateExportTaskCommand)
+        .rejectsOnce(limitExceeded)
+        .resolvesOnce({ taskId: 'cda45419-90ea-4db5-9833-aade86253e66' });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(2);
+    });
+
+    it('stops in the create step when CreateExportTask omits taskId', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand).resolves({});
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      // The local durable mock does not finish a step that throws.
+      expect(result.Status).toBe('PENDING');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(1);
+    });
+
+    it('stops in the create step when CreateExportTask throws a non-limit error', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand).rejects(new Error('access denied'));
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(result.Status).toBe('PENDING');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(1);
+    });
+
+    it('waits while the export task is RUNNING and then completes', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(DescribeExportTasksCommand)
+        .resolvesOnce({ exportTasks: [{ status: { code: 'RUNNING' } }] })
+        .resolvesOnce({ exportTasks: [{}] })
+        .resolvesOnce({ exportTasks: [{ status: { code: 'COMPLETED' } }] });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(DescribeExportTasksCommand)).toHaveLength(3);
+    });
+
+    it('returns FAILED when an export window is missing', async () => {
+      const spy = jest.spyOn(exportWindow, 'listUtcExportWindows').mockReturnValue([undefined as never]);
+      mockCompletedExport(['example/log-group']);
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+      spy.mockRestore();
+
+      expect(getFailedErrorMessage(result)).toBe('Export failed for 1 of 1 log group(s): example/log-group');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(0);
     });
 
     it('waits and retries CreateExportTask after LimitExceededException', async () => {
