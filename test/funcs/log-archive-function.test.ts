@@ -8,6 +8,7 @@ import {
   CloudWatchLogsClient,
   CreateExportTaskCommand,
   DescribeExportTasksCommand,
+  LimitExceededException,
 } from '@aws-sdk/client-cloudwatch-logs';
 import {
   GetResourcesCommand,
@@ -306,6 +307,33 @@ describe('Lambda Function Handler testing', () => {
       expect(taggingMock.commandCalls(GetResourcesCommand)[1].args[0].input.PaginationToken).toBe('page-2');
       expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName))
         .toEqual(['group-a', 'group-b']);
+    });
+
+    it('waits and retries CreateExportTask after LimitExceededException', async () => {
+      mockCompletedExport(['example/log-group']);
+      cwLogsMock.on(CreateExportTaskCommand)
+        .rejectsOnce(new LimitExceededException({ message: 'Resource limit exceeded.', $metadata: {} }))
+        .resolvesOnce({ taskId: 'cda45419-90ea-4db5-9833-aade86253e66' });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand)).toHaveLength(2);
+      expect(cwLogsMock.commandCalls(DescribeExportTasksCommand)).toHaveLength(1);
+    });
+
+    it('stops at the first failed log group and does not export the rest', async () => {
+      mockCompletedExport(['group-a', 'group-b', 'group-c']);
+      cwLogsMock.on(CreateExportTaskCommand, { logGroupName: 'group-a' }).resolves({ taskId: 'failed-task' });
+      cwLogsMock.on(DescribeExportTasksCommand, { taskId: 'failed-task' }).resolves({
+        exportTasks: [{ status: { code: 'FAILED' } }],
+      });
+
+      const result = await invokeHandler(SCHEDULE_EVENT);
+
+      expect(getFailedErrorMessage(result)).toContain('Export failed');
+      expect(cwLogsMock.commandCalls(CreateExportTaskCommand).map((call) => call.args[0].input.logGroupName))
+        .toEqual(['group-a', 'group-a']);
     });
   });
 
