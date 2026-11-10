@@ -11,7 +11,9 @@ import {
   GetResourcesCommand,
   ResourceGroupsTaggingAPIClient,
 } from '@aws-sdk/client-resource-groups-tagging-api';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { StrictEnvResolver, StrictEnvType } from 'strict-env-resolver';
+import { EXPORT_FAILURE_LOG_MESSAGE } from '../settings/consts';
 import { buildDestinationPrefix } from './core/destination-prefix';
 import {
   getExportBatchFailureMessage,
@@ -72,6 +74,39 @@ const getLogGroupNameFromArn = (arn: string): string => {
   const parts = arn.split(':');
   return parts[6] ?? arn;
 };
+
+/** Dimension value when the Lambda runtime did not set a function name. */
+const UNKNOWN_LAMBDA_FUNCTION_NAME = 'unknown';
+
+/**
+ * Reads the Lambda function name. A missing or blank value becomes {@link UNKNOWN_LAMBDA_FUNCTION_NAME}.
+ */
+const resolveLambdaFunctionName = (): string => StrictEnvResolver.resolve(
+  'AWS_LAMBDA_FUNCTION_NAME',
+  StrictEnvType.String,
+  { default: UNKNOWN_LAMBDA_FUNCTION_NAME, trim: true },
+);
+
+/** Total tries per SDK send, including the first. Matches the SDK default. */
+const AWS_SDK_MAX_ATTEMPTS = 3;
+
+/** TCP connect limit for one SDK HTTP call. */
+const AWS_SDK_CONNECTION_TIMEOUT_MS = 5_000;
+
+/** Response limit for one SDK HTTP call, before the SDK retries. */
+const AWS_SDK_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * SDK retry and per-request timeouts. The region comes from the Lambda environment.
+ * Overall export waiting stays on durable wait, not on these HTTP limits.
+ */
+const createAwsClientConfig = () => ({
+  maxAttempts: AWS_SDK_MAX_ATTEMPTS,
+  requestHandler: new NodeHttpHandler({
+    connectionTimeout: AWS_SDK_CONNECTION_TIMEOUT_MS,
+    requestTimeout: AWS_SDK_REQUEST_TIMEOUT_MS,
+  }),
+});
 
 /** Seconds to wait between status checks when the export task is RUNNING. */
 const RUNNING_WAIT_SECONDS = 10;
@@ -308,7 +343,7 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
 
   const bucketName = StrictEnvResolver.resolve('BUCKET_NAME', StrictEnvType.String);
 
-  const cwLogs = new CloudWatchLogsClient({});
+  const cwLogs = new CloudWatchLogsClient(createAwsClientConfig());
   let logGroupNames: string[];
 
   const params = event.Params;
@@ -320,7 +355,7 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
   const windows = listUtcExportWindows(new Date(), exportSettings);
 
   logGroupNames = await context.step('get-resources', async () => {
-    const taggingClient = new ResourceGroupsTaggingAPIClient({});
+    const taggingClient = new ResourceGroupsTaggingAPIClient(createAwsClientConfig());
     const arns: string[] = [];
     let paginationToken: string | undefined;
     do {
@@ -361,12 +396,12 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
   );
 
   const exportedCount = mapResult.successCount;
-  emitExportedCountMetricLog(exportedCount);
+  emitExportedCountMetricLog(exportedCount, resolveLambdaFunctionName());
 
   if (hasExportBatchFailure(mapResult.failureCount)) {
     const failedLogGroups = mapResult.failed().map((item) => logGroupNames[item.index] ?? `index ${item.index}`);
     const notAttemptedCount = logGroupNames.length - mapResult.successCount - mapResult.failureCount;
-    context.logger.error('Log archiver completed with export failures', {
+    context.logger.error(EXPORT_FAILURE_LOG_MESSAGE, {
       exportedCount,
       failureCount: mapResult.failureCount,
       notAttemptedCount,

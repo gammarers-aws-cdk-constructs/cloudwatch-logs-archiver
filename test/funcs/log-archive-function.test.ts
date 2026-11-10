@@ -79,7 +79,7 @@ const createMockDurableClient = (): DurableExecutionClient => ({
   },
 });
 
-/** Durable Execution が受け取る形式でテスト用の invocation input を組み立てる */
+/** Builds the invocation input Durable Execution passes to the handler. */
 const createInvocationInput = (userEvent: LogArchiveScheduleEvent): DurableExecutionInvocationInputWithClient => {
   const base: DurableExecutionInvocationInput = {
     DurableExecutionArn: 'arn:aws:durable-execution:test',
@@ -394,6 +394,36 @@ describe('Lambda Function Handler testing', () => {
         { key: 'BUCKET_NAME', message: 'Missing required environment variable: BUCKET_NAME', kind: 'missing' },
       ]);
       expect(errorMessage).toBe(validationError.message);
+    });
+
+    it.each([
+      { name: 'unset', functionName: undefined },
+      { name: 'blank', functionName: '   ' },
+    ])('logs functionName unknown when AWS_LAMBDA_FUNCTION_NAME is $name', async ({ functionName }) => {
+      const originalFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+      if (functionName === undefined) {
+        delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+      } else {
+        process.env.AWS_LAMBDA_FUNCTION_NAME = functionName;
+      }
+      mockCompletedExport(['example/log-group']);
+      const logged: unknown[] = [];
+      const logSpy = jest.spyOn(console, 'log').mockImplementation((value: unknown) => {
+        logged.push(value);
+      });
+
+      try {
+        const result = await invokeHandler(SCHEDULE_EVENT);
+        expect(getSucceededPayload(result)).toStrictEqual({ ExportedCount: 1 });
+        expect(logged).toContainEqual({ exportedCount: 1, functionName: 'unknown' });
+      } finally {
+        logSpy.mockRestore();
+        if (originalFunctionName === undefined) {
+          delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+          return;
+        }
+        process.env.AWS_LAMBDA_FUNCTION_NAME = originalFunctionName;
+      }
     });
   });
 

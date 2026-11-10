@@ -21,6 +21,11 @@
       "type": "build"
     },
     {
+      "name": "@smithy/node-http-handler",
+      "version": "^4.4.0",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
@@ -144,6 +149,11 @@
       "name": "constructs",
       "version": "^10.5.1",
       "type": "peer"
+    },
+    {
+      "name": "lambda-failure-detector",
+      "version": "^0.2.3",
+      "type": "runtime"
     },
     {
       "name": "s3-secure-bucket",

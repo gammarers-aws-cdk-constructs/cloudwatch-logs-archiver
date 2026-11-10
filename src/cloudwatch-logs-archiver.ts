@@ -7,6 +7,7 @@ import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as targets from 'aws-cdk-lib/aws-scheduler-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
+import { LambdaFailureDetector, type LogFailureFilter } from 'lambda-failure-detector';
 import { S3SecureBucket, S3SecureBucketType } from 's3-secure-bucket';
 import { LogArchiveFunction } from './funcs/log-archive-function';
 import {
@@ -18,6 +19,7 @@ import {
   DESTINATION_PREFIX_YEAR_TOKEN,
   EXPORT_FAILURE_MODE_CONTINUE,
   EXPORT_FAILURE_MODE_FAIL_FAST,
+  EXPORT_FAILURE_LOG_MESSAGE,
   EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD,
   EXPORTED_COUNT_LOG_FIELD,
   EXPORTED_COUNT_METRIC_NAME,
@@ -41,7 +43,8 @@ export interface TargetResource {
 
 /**
  * Failure-alarm and notification settings for {@link CloudWatchLogsArchiver}.
- * Creates CloudWatch Alarms for Scheduler/Lambda failures and insufficient ExportedCount.
+ * Creates CloudWatch Alarms for Lambda errors and throttles, the export-failure log,
+ * Scheduler delivery failures, and insufficient ExportedCount.
  * The construct never creates an SNS topic; pass {@link FailureAlarmOptions.notificationTopic}
  * to receive ALARM-state notifications.
  */
@@ -124,7 +127,8 @@ export interface CloudWatchLogsArchiverProps {
   /** Tag filter to identify which log groups to archive daily. */
   readonly targetResource: TargetResource;
   /**
-   * Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+   * Failure alarms for Lambda errors and throttles, the export-failure log,
+   * Scheduler delivery failures, and insufficient ExportedCount.
    * Omit to skip alarm creation. Alarms are created when `enabled` is true or
    * {@link FailureAlarmOptions.notificationTopic} is set.
    * @default - failure alarms are not created
@@ -140,6 +144,19 @@ export interface CloudWatchLogsArchiverProps {
 
 /** Default minimum successful exports per daily run. */
 const DEFAULT_MIN_EXPORTED_COUNT = 1;
+
+/**
+ * Log failures this construct asks {@link LambdaFailureDetector} to alarm on.
+ * Platform Errors and Throttles are added by the detector itself.
+ */
+const ARCHIVER_LOG_FILTERS: LogFailureFilter[] = [
+  {
+    id: 'ExportFailed',
+    filterPattern: `"${EXPORT_FAILURE_LOG_MESSAGE}"`,
+    metricNamespace: EXPORTED_COUNT_METRIC_NAMESPACE,
+    metricName: 'ExportFailed',
+  },
+];
 
 /**
  * Options for {@link CloudWatchLogsArchiver.addFailureAlarm}.
@@ -373,10 +390,9 @@ export class CloudWatchLogsArchiver extends Construct {
 
     const lambdaLogGroup = new logs.LogGroup(this, 'LambdaFunctionLogGroup', {
       retention: logs.RetentionDays.THREE_MONTHS,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
-    // 👇 Create Lambda Function
     const logArchiveFunction = new LogArchiveFunction(this, 'LogArchiveFunction', {
       description: 'A function to archive logs s3 bucket from CloudWatch Logs.',
       architecture: lambda.Architecture.ARM_64,
@@ -507,26 +523,19 @@ export class CloudWatchLogsArchiver extends Construct {
   }
 
   /**
-   * Wires failure CloudWatch Alarms for Lambda errors, Scheduler delivery failures,
+   * Wires failure detection for the archive Lambda, Scheduler delivery failures,
    * and insufficient ExportedCount. Publishes to SNS when a topic is provided.
    */
   private addFailureAlarms(params: AddFailureAlarmsParams): void {
     const { lambdaFunction, lambdaLogGroup, minExportedCount, notificationTopic, scheduleGroup } = params;
 
-    this.addFailureAlarm(
-      'LambdaErrorsAlarm',
-      lambdaFunction.metricErrors({
-        period: Duration.minutes(5),
-        statistic: cloudwatch.Stats.SUM,
-      }),
-      {
-        alarmDescription: 'CloudWatch Logs Archiver Lambda reported Errors >= 1.',
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        notificationTopic,
-        threshold: 1,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      },
-    );
+    // Platform Errors and Throttles, plus the export-failure log, come from the detector.
+    new LambdaFailureDetector(this, 'FailureDetector', {
+      lambdaFunction,
+      logGroup: lambdaLogGroup,
+      alarmTopic: notificationTopic,
+      logFilters: ARCHIVER_LOG_FILTERS,
+    });
 
     this.addFailureAlarm(
       'SchedulerTargetErrorsAlarm',

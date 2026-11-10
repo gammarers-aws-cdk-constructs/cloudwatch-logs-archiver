@@ -95,3 +95,9 @@ export const EXPORTED_COUNT_LOG_FIELD = 'exportedCount';
  * Metric Filter path is `$.message.functionName`.
  */
 export const EXPORTED_COUNT_FUNCTION_NAME_LOG_FIELD = 'functionName';
+
+/**
+ * Durable logger message emitted when one or more log group exports fail.
+ * The construct's log metric filter matches this phrase.
+ */
+export const EXPORT_FAILURE_LOG_MESSAGE = 'Log archiver completed with export failures';

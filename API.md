@@ -1130,7 +1130,7 @@ const cloudWatchLogsArchiverProps: CloudWatchLogsArchiverProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Lambda errors and throttles, the export-failure log, Scheduler delivery failures, and insufficient ExportedCount. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiverProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window, S3 key prefix, and failure handling. |
 
 ---
@@ -1156,7 +1156,7 @@ public readonly failureAlarm: FailureAlarmOptions;
 - *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
 - *Default:* failure alarms are not created
 
-Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+Failure alarms for Lambda errors and throttles, the export-failure log, Scheduler delivery failures, and insufficient ExportedCount.
 
 Omit to skip alarm creation. Alarms are created when `enabled` is true or
 {@link FailureAlarmOptions.notificationTopic} is set.
@@ -1198,7 +1198,7 @@ const cloudWatchLogsArchiveStackProps: CloudWatchLogsArchiveStackProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.targetResource">targetResource</a></code> | <code><a href="#cloudwatch-logs-archiver.TargetResource">TargetResource</a></code> | Tag filter to identify which log groups to archive daily. |
-| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount. |
+| <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.failureAlarm">failureAlarm</a></code> | <code><a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a></code> | Failure alarms for Lambda errors and throttles, the export-failure log, Scheduler delivery failures, and insufficient ExportedCount. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.logExport">logExport</a></code> | <code><a href="#cloudwatch-logs-archiver.LogExportOptions">LogExportOptions</a></code> | Export window, S3 key prefix, and failure handling. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.analyticsReporting">analyticsReporting</a></code> | <code>boolean</code> | Include runtime versioning information in this Stack. |
 | <code><a href="#cloudwatch-logs-archiver.CloudWatchLogsArchiveStackProps.property.crossRegionReferences">crossRegionReferences</a></code> | <code>boolean</code> | Enable this flag to allow native cross region stack references. |
@@ -1236,7 +1236,7 @@ public readonly failureAlarm: FailureAlarmOptions;
 - *Type:* <a href="#cloudwatch-logs-archiver.FailureAlarmOptions">FailureAlarmOptions</a>
 - *Default:* failure alarms are not created
 
-Failure alarms for Scheduler/Lambda errors and insufficient ExportedCount.
+Failure alarms for Lambda errors and throttles, the export-failure log, Scheduler delivery failures, and insufficient ExportedCount.
 
 Omit to skip alarm creation. Alarms are created when `enabled` is true or
 {@link FailureAlarmOptions.notificationTopic} is set.
@@ -1507,7 +1507,8 @@ Whether to enable termination protection for this stack.
 
 Failure-alarm and notification settings for {@link CloudWatchLogsArchiver}.
 
-Creates CloudWatch Alarms for Scheduler/Lambda failures and insufficient ExportedCount.
+Creates CloudWatch Alarms for Lambda errors and throttles, the export-failure log,
+Scheduler delivery failures, and insufficient ExportedCount.
 The construct never creates an SNS topic; pass {@link FailureAlarmOptions.notificationTopic}
 to receive ALARM-state notifications.
 
