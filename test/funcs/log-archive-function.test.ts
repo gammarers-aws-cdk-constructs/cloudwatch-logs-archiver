@@ -347,7 +347,9 @@ describe('Lambda Function Handler testing', () => {
     ])('should return FAILED when $name', async ({ payload }) => {
       const result = await invokeHandler(payload);
 
-      expect(getFailedErrorMessage(result)).toContain('Params.TagKey');
+      expect(getFailedErrorMessage(result)).toBe(
+        'Invalid event: Params.TagKey and Params.TagValues are required.',
+      );
     });
   });
 });

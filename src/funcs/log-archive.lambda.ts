@@ -292,7 +292,7 @@ const exportLogGroupDays = async (
  * @param context - Durable execution context (steps, map, logger).
  * @returns Object with `ExportedCount`: number of log groups successfully exported.
  * @throws {import('strict-env-resolver').StrictEnvValidationError} if `BUCKET_NAME` is not set.
- * @throws Error if `Params` are missing or invalid.
+ * @throws Error if `Params`, `Params.TagKey`, or `Params.TagValues` is missing or empty.
  * @throws CloudWatchLogsArchiverValidateError if `Params.Export` is present and invalid.
  * @throws Error if one or more log group exports fail (`failureCount` > 0).
  */
@@ -306,7 +306,7 @@ export const handler = withDurableExecution(async (event: ScheduleEvent, context
 
   const params = event.Params;
   if (!params?.TagKey || !params?.TagValues) {
-    throw new Error('Invalid event: Params.TagKey, Params.TagValues, Params.Mode are required.');
+    throw new Error('Invalid event: Params.TagKey and Params.TagValues are required.');
   }
 
   const exportSettings = resolveExportSettings(params.Export);
